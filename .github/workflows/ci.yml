@@ -18,6 +18,14 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...
+      # Sandbox integration tests need bwrap and unprivileged user
+      # namespaces, which Ubuntu 24.04 restricts through AppArmor.
+      - name: bubblewrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: go test -race -v -run TestSandbox ./... 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL|PASS)'
       - run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:
