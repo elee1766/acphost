@@ -16,13 +16,13 @@ const Protocol = 1
 
 // Files in a session directory.
 const (
-	SpecFile    = "spec.json"
-	LockFile    = "host.lock" // flock held for the host's lifetime
-	PidFile     = "host.pid"
-	LogFile     = "host.log"
-	ACPSocket   = "acp.sock"
-	JournalFile = "journal.ndjson"
-	ExitFile    = "exit.json"
+	SpecFile    = "spec.json"      // Spec, written by the client before start
+	LockFile    = "host.lock"      // flock held for the host's lifetime
+	PidFile     = "host.pid"       // host pid, decimal
+	LogFile     = "host.log"       // host stderr, if the starter redirects it
+	ACPSocket   = "acp.sock"       // unix socket clients Connect to
+	JournalFile = "journal.ndjson" // one Frame per line
+	ExitFile    = "exit.json"      // Exit, written when the host stops
 )
 
 // Extension methods between controller and host on acp.sock. Everything
@@ -112,15 +112,15 @@ type Welcome struct {
 
 // TurnEnd is the payload of MethodTurnEnd: the raw prompt result or error.
 type TurnEnd struct {
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  json.RawMessage `json:"error,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"` // JSON-RPC result, if the prompt succeeded
+	Error  json.RawMessage `json:"error,omitempty"`  // JSON-RPC error, if it failed
 }
 
 // Exit records why a host stopped.
 type Exit struct {
-	Reason   string `json:"reason"`
-	ExitCode int    `json:"exit_code"`
-	Signal   string `json:"signal,omitempty"`
+	Reason   string `json:"reason"`           // human-readable cause
+	ExitCode int    `json:"exit_code"`        // agent exit code, -1 if killed by a signal
+	Signal   string `json:"signal,omitempty"` // signal that killed the agent, if any
 }
 
 // WriteSpec stores spec in dir.

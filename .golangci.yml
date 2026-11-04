@@ -8,6 +8,12 @@ linters:
     - misspell
     - revive
     - unconvert
+  settings:
+    revive:
+      rules:
+        # Every exported name needs a doc comment (#4).
+        - name: exported
+        - name: package-comments
 
 formatters:
   enable:

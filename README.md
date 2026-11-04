@@ -19,10 +19,35 @@ restarts, it reconnects and resumes from a journal sequence number.
 
 ## Status
 
-Empty. The code is being extracted from
+Pre-v1, Linux only. Extracted from
 [jobshop](https://github.com/elee1766/jobshop) `pkg/host`, which uses it
-to run agent sessions that survive controller restarts. See the issue
-labeled `target`.
+to run agent sessions that survive controller restarts.
+
+## Usage
+
+The runnable version is `Example` in `example_test.go`.
+
+```go
+// Client: write the spec into the session directory.
+acphost.WriteSpec(dir, acphost.Spec{
+	Protocol: acphost.Protocol, Session: "demo",
+	Command: "claude-code-acp", Dir: workDir, LeaseMS: 600_000,
+})
+
+// Start the host detached: your binary, a subcommand whose body is
+//     acphost.Main(dir)
+// started with Setsid so it outlives the client.
+
+// Connect. The welcome has the last journal seq and the cached
+// initialize result. Then speak ACP on nc.
+nc, rd, welcome, err := acphost.Connect(ctx, dir)
+
+// After a client restart: send Hello{Since: &seq} instead to get the
+// agent notifications journaled after seq replayed before live traffic.
+// acphost.ReadJournal reads the journal directly.
+
+// Stop the host: send the MethodStop notification on the socket.
+```
 
 ## Develop
 
