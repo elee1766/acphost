@@ -75,6 +75,9 @@ type Spec struct {
 	MethodPrefix string `json:"method_prefix,omitempty"`
 	// GCRootPrefix replaces DefaultGCRootPrefix in the GC root link name.
 	GCRootPrefix string `json:"gcroot_prefix,omitempty"`
+	// Sandbox, if set, runs the agent inside a sandbox. Nil runs it
+	// directly.
+	Sandbox *Sandbox `json:"sandbox,omitempty"`
 }
 
 // MethodName returns the extension method for prefix and a suffix such as
