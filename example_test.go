@@ -83,5 +83,5 @@ func Example() {
 	fmt.Println("exit:", ex.Reason, ex.Signal)
 	// Output:
 	// welcome seq 1, replayed {"jsonrpc":"2.0","method":"session/update"}
-	// exit: agent exited terminated
+	// exit: controller requested stop terminated
 }

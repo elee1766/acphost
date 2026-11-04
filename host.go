@@ -72,8 +72,9 @@ type Host struct {
 	turnEnds     [][]byte // turn_end notifications waiting for a controller
 	prompts      int      // session/prompt calls in flight
 
-	stopOnce sync.Once
-	stopping chan struct{}
+	stopOnce   sync.Once
+	stopping   chan struct{}
+	stopReason string // first reason passed to stop, written once inside stopOnce
 }
 
 // Main runs the host for the session directory dir until the agent exits.
@@ -187,11 +188,13 @@ func (h *Host) run() error {
 	// Kill anything the agent left in its group (it was the group leader).
 	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
 
-	ex := Exit{Reason: "agent exited", ExitCode: h.agent.ProcessState.ExitCode()}
+	// stop has run by now, so stopReason is set. It is "agent exited"
+	// unless the host stopped the agent first (controller stop, lease).
+	ex := Exit{Reason: h.stopReason, ExitCode: h.agent.ProcessState.ExitCode()}
 	if ws, ok := h.agent.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		ex.Signal = ws.Signal().String()
 	}
-	if readErr != nil {
+	if readErr != nil && ex.Reason == "agent exited" {
 		ex.Reason = "agent output: " + readErr.Error()
 	}
 	h.writeExit(ex)
@@ -231,6 +234,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 // stop asks the agent to exit: SIGTERM to its group, SIGKILL after 5s.
 func (h *Host) stop(reason string) {
 	h.stopOnce.Do(func() {
+		h.stopReason = reason
 		close(h.stopping)
 		h.log.Info("stopping", "reason", reason)
 		if h.agent == nil || h.agent.Process == nil {
