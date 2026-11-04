@@ -26,7 +26,7 @@ to run agent sessions that survive controller restarts.
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost@v0.1.0
+go get github.com/elee1766/acphost@v0.2.0
 ```
 
 ## Usage
@@ -55,9 +55,43 @@ nc, rd, welcome, err := acphost.Connect(ctx, dir)
 // Stop the host: send the MethodStop notification on the socket.
 ```
 
+## Sandbox
+
+Set `Spec.Sandbox` to run the agent under
+[bubblewrap](https://github.com/containers/bubblewrap). Nil runs it
+directly, as before.
+
+```go
+home, _ := os.UserHomeDir()
+spec.Sandbox = &acphost.Sandbox{
+	RO:      []acphost.Mount{{Src: "/nix/store"}, {Src: "/etc"}},
+	RW:      []acphost.Mount{{Src: workDir}},
+	Hide:    []string{filepath.Join(home, ".ssh")},
+	EnvKeep: []string{"PATH", "HOME"},
+	Network: "host", // or "none"
+}
+```
+
+- Always added: `--die-with-parent --unshare-pid --new-session`, a fresh
+  `/proc`, `/dev` and `/tmp`, `--clearenv` (then `EnvKeep` and
+  `Spec.Env` are set), and `--chdir` to `Spec.Dir`, which must be inside
+  an RW mount.
+- Only the agent is sandboxed. The host stays outside, so the socket,
+  journal and `exit.json` work as before, and `exit.json` reports the
+  agent's own exit code or signal.
+- Policy is the caller's job: acphost mounts exactly what the spec lists
+  and adds nothing else.
+- bwrap is `Sandbox.Bwrap` if set, else `bwrap` on the host's PATH.
+  `CheckSpawn` reports a missing bwrap, a missing mount source or a Dir
+  outside RW as a permanent error. `SandboxArgs` returns the argv
+  without running it.
+
 ## Develop
 
 ```
 go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...   # v2.15.0, config in .golangci.yml
 ```
+
+The sandbox integration tests skip unless `bwrap` is on PATH and user
+namespaces work.
