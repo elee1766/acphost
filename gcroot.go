@@ -46,7 +46,11 @@ func registerGCRoot(log *slog.Logger, spec Spec, exe string) func() {
 	if pkg == "" {
 		return func() {}
 	}
-	link := filepath.Join(gcRootDir(spec), "jobshop-host-"+spec.Session)
+	prefix := spec.GCRootPrefix
+	if prefix == "" {
+		prefix = DefaultGCRootPrefix
+	}
+	link := filepath.Join(gcRootDir(spec), prefix+spec.Session)
 	_ = os.Remove(link) // stale link from a crashed host of this session
 	if err := os.Symlink(pkg, link); err != nil {
 		log.Warn("gc root", "err", err)

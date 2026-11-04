@@ -26,8 +26,17 @@ const (
 )
 
 // Extension methods between controller and host on acp.sock. Everything
-// else on the socket is ACP, forwarded to or from the agent.
+// else on the socket is ACP, forwarded to or from the agent. The names
+// below use DefaultMethodPrefix. A session with Spec.MethodPrefix set uses
+// that prefix instead (see MethodName).
 const (
+	// DefaultMethodPrefix is the extension method prefix when
+	// Spec.MethodPrefix is empty, the name hosts have always used.
+	DefaultMethodPrefix = "_jobshop/"
+	// DefaultGCRootPrefix is the GC root link name prefix when
+	// Spec.GCRootPrefix is empty. The link is <prefix><session>.
+	DefaultGCRootPrefix = "jobshop-host-"
+
 	// MethodStop (controller to host, notification): stop the agent and exit.
 	MethodStop = "_jobshop/stop"
 	// MethodTurnEnd (host to controller, notification): a session/prompt
@@ -61,7 +70,23 @@ type Spec struct {
 	// GCRootDir overrides where the Nix GC root for the host binary goes
 	// (default /nix/var/nix/gcroots/per-user/$USER). Used by tests.
 	GCRootDir string `json:"gcroot_dir,omitempty"`
+	// MethodPrefix replaces DefaultMethodPrefix for extension methods. The
+	// controller must Connect with the same prefix.
+	MethodPrefix string `json:"method_prefix,omitempty"`
+	// GCRootPrefix replaces DefaultGCRootPrefix in the GC root link name.
+	GCRootPrefix string `json:"gcroot_prefix,omitempty"`
 }
+
+// MethodName returns the extension method for prefix and a suffix such as
+// "stop". An empty prefix means DefaultMethodPrefix.
+func MethodName(prefix, name string) string {
+	if prefix == "" {
+		prefix = DefaultMethodPrefix
+	}
+	return prefix + name
+}
+
+func (s Spec) method(name string) string { return MethodName(s.MethodPrefix, name) }
 
 // Hello is the first line a controller sends on acp.sock.
 type Hello struct {
@@ -80,6 +105,9 @@ type Welcome struct {
 	Seq      int64 `json:"seq"`  // last journal sequence number
 	// Initialize is the agent's cached initialize result, if any.
 	Initialize json.RawMessage `json:"initialize,omitempty"`
+	// MethodPrefix is the host's extension method prefix. Hosts from before
+	// it existed leave it empty, which means DefaultMethodPrefix.
+	MethodPrefix string `json:"method_prefix,omitempty"`
 }
 
 // TurnEnd is the payload of MethodTurnEnd: the raw prompt result or error.

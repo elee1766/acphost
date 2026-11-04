@@ -278,7 +278,7 @@ func (h *Host) statsLoop() {
 		if conn == nil {
 			continue
 		}
-		conn.send(outItem{line: notification(MethodExportStats, pending)})
+		conn.send(outItem{line: notification(h.spec.method("export_stats"), pending)})
 		pending = ExportStats{}
 	}
 }
@@ -437,7 +437,7 @@ func (h *Host) routeAgent(f frame, line []byte) ([]byte, *controllerConn) {
 		}
 		if call.method == "session/prompt" {
 			// The controller that asked is gone; tell whoever is next.
-			te := notification(MethodTurnEnd, TurnEnd{Result: f.Result, Error: f.Error})
+			te := notification(h.spec.method("turn_end"), TurnEnd{Result: f.Result, Error: f.Error})
 			if h.conn != nil {
 				return te, h.conn
 			}
@@ -510,6 +510,7 @@ func (h *Host) serveConn(nc net.Conn) {
 	w := Welcome{
 		Protocol: Protocol, Pid: os.Getpid(), AgentPid: h.agent.Process.Pid,
 		Busy: h.prompts > 0, Seq: h.seq, Initialize: h.initResult,
+		MethodPrefix: MethodName(h.spec.MethodPrefix, ""),
 	}
 	wb, _ := json.Marshal(w)
 	// The welcome goes out before the writer starts, so it is first.
@@ -567,7 +568,7 @@ func (h *Host) fromController(c *controllerConn, line []byte) {
 		h.log.Warn("controller wrote non-JSON", "line", truncate(line))
 		return
 	}
-	if f.Method == MethodStop {
+	if f.Method == h.spec.method("stop") {
 		h.stop("controller requested stop")
 		return
 	}
@@ -622,9 +623,28 @@ func truncate(b []byte) string {
 	return string(b)
 }
 
+// ConnectOption configures Connect.
+type ConnectOption func(*connectOptions)
+
+type connectOptions struct {
+	methodPrefix string
+}
+
+// WithMethodPrefix sets the extension method prefix the controller
+// expects. It must match the host's Spec.MethodPrefix. Empty means
+// DefaultMethodPrefix.
+func WithMethodPrefix(p string) ConnectOption {
+	return func(o *connectOptions) { o.methodPrefix = p }
+}
+
 // Connect dials a host's acp.sock and performs the hello handshake. The
 // returned reader holds any bytes already buffered after the welcome line.
-func Connect(ctx context.Context, dir string) (net.Conn, *bufio.Reader, Welcome, error) {
+// It fails if the host uses a different extension method prefix.
+func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, *bufio.Reader, Welcome, error) {
+	var o connectOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	var w Welcome
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "unix", filepath.Join(dir, ACPSocket))
@@ -651,6 +671,9 @@ func Connect(ctx context.Context, dir string) (net.Conn, *bufio.Reader, Welcome,
 	}
 	if w.Protocol != Protocol {
 		return fail(fmt.Errorf("host speaks protocol %d, want %d", w.Protocol, Protocol))
+	}
+	if got, want := MethodName(w.MethodPrefix, ""), MethodName(o.methodPrefix, ""); got != want {
+		return fail(fmt.Errorf("host uses extension method prefix %q, want %q", got, want))
 	}
 	return nc, rd, w, nil
 }
