@@ -1,0 +1,13 @@
+{"seq":1,"t":1793516305387,"from":"controller","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}}
+{"seq":2,"t":1793516305387,"from":"agent","msg":{"id":"h1","jsonrpc":"2.0","result":{"protocolVersion":1}}}
+{"seq":3,"t":1793516306000,"from":"controller","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"You have claimed ticket js-1.\nMore text"}]}}}
+{"seq":4,"t":1793516306100,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Reading the"}}}}}
+{"seq":5,"t":1793516306200,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" spec."}}}}}
+{"seq":6,"t":1793516306300,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"plan","entries":[{"content":"read issue","status":"completed","priority":"high"},{"content":"write code","status":"in_progress","priority":"high"},{"content":"open PR","status":"pending","priority":"medium"}]}}}}
+{"seq":7,"t":1793516306400,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running shell command","kind":"execute","status":"pending"}}}}
+{"seq":8,"t":1793516306500,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1"}}}}
+{"seq":9,"t":1793516306600,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}}
+{"seq":10,"t":1793516306700,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"usage_update","size":1000000,"used":5367}}}}
+{"seq":11,"t":1793516306800,"from":"agent","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}}}}
+{"seq":12,"t":1793516307000,"from":"agent","msg":{"id":"h3","jsonrpc":"2.0","result":{"stopReason":"end_turn"}}}
+{"seq":13,"t":1793516308000,"from":"controller","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s1"}}}

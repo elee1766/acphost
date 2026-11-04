@@ -1,0 +1,45 @@
+package acphost
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPermanent(t *testing.T) {
+	dir := t.TempDir()
+	_, statErr := os.Stat(filepath.Join(dir, "gone"))
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"not exist":   {fmt.Errorf("wrap: %w", statErr), true},
+		"not found":   {fmt.Errorf("x: %w", exec.ErrNotFound), true},
+		"marked":      {Permanentf("bad"), true},
+		"transient":   {errors.New("git fetch: timeout"), false},
+		"nil-wrapped": {fmt.Errorf("connect: %w", os.ErrDeadlineExceeded), false},
+	} {
+		assert.Equal(t, tc.want, Permanent(tc.err), name)
+	}
+}
+
+func TestCheckSpawn(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "agent")
+	assert.NoError(t, os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o700))
+	assert.NoError(t, CheckSpawn(Spec{Dir: dir, Command: exe}, false))
+	assert.NoError(t, CheckSpawn(Spec{Dir: dir, Command: "agent", Env: []string{"PATH=" + dir}}, false), "PATH from the spec env")
+	assert.NoError(t, CheckSpawn(Spec{Dir: filepath.Join(dir, "later"), Command: exe}, true), "worktree made by the caller")
+
+	err := CheckSpawn(Spec{Dir: filepath.Join(dir, "gone"), Command: exe}, false)
+	assert.True(t, Permanent(err), "missing dir: %v", err)
+	err = CheckSpawn(Spec{Dir: dir, Command: "agent", Env: []string{"PATH=/nonexistent"}}, false)
+	assert.True(t, Permanent(err), "agent not on PATH: %v", err)
+	err = CheckSpawn(Spec{Dir: dir, Command: filepath.Join(dir, "gone")}, false)
+	assert.True(t, Permanent(err))
+}
