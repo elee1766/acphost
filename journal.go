@@ -14,10 +14,10 @@ import (
 
 // Frame is one journal line.
 type Frame struct {
-	Seq  int64           `json:"seq"`
-	T    int64           `json:"t"` // unix ms
-	From string          `json:"from"`
-	Msg  json.RawMessage `json:"msg"`
+	Seq  int64           `json:"seq"`  // 1-based, increasing
+	T    int64           `json:"t"`    // unix ms
+	From string          `json:"from"` // "agent" or "controller"
+	Msg  json.RawMessage `json:"msg"`  // the JSON-RPC message as sent
 }
 
 // ReadJournal returns the frames in path with seq > since. With since < 0
@@ -88,7 +88,7 @@ func scanFrames(f *os.File, off int64, fn func(Frame)) (int64, error) {
 // joined, one line per tool call state change, plans, and turn boundaries.
 // Frames it does not understand are skipped.
 type Renderer struct {
-	W      io.Writer
+	W      io.Writer         // where rendered text goes
 	inText bool              // last output was an unterminated message chunk
 	tools  map[string]string // toolCallId -> title
 }
