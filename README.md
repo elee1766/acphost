@@ -23,6 +23,12 @@ Pre-v1, Linux only. Extracted from
 [jobshop](https://github.com/elee1766/jobshop) `pkg/host`, which uses it
 to run agent sessions that survive controller restarts.
 
+## Install
+
+```sh
+go get github.com/elee1766/acphost@v0.1.0
+```
+
 ## Usage
 
 The runnable version is `Example` in `example_test.go`.
