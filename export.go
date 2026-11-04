@@ -1,0 +1,37 @@
+package acphost
+
+import (
+	"context"
+	"time"
+)
+
+// Exporter receives every frame the host journals, for example to ship
+// the conversation to a telemetry backend. The host calls Observe with
+// its state lock held, so Observe must not block: buffer and drop instead.
+type Exporter interface {
+	// Observe is called with each frame; from is "agent" or "controller".
+	// line must not be retained after Observe returns.
+	Observe(from string, line []byte)
+	// TakeCounts returns the records dropped and fields truncated since the
+	// last call. The host reports them to the controller as MethodExportStats.
+	TakeCounts() (dropped, truncated int64)
+	// Close flushes and stops the exporter. ctx bounds the flush.
+	Close(ctx context.Context) error
+}
+
+// ExporterFactory builds the Exporter for a session. It runs once, before
+// the agent starts. An error is logged and the session runs without export.
+type ExporterFactory func(spec Spec) (Exporter, error)
+
+// Option configures Main.
+type Option func(*options)
+
+type options struct {
+	exporter   ExporterFactory
+	statsEvery time.Duration // MethodExportStats period; tests shorten it
+}
+
+// WithExporter sets the conversation export factory. Nil means no export.
+func WithExporter(f ExporterFactory) Option {
+	return func(o *options) { o.exporter = f }
+}

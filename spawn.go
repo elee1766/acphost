@@ -1,0 +1,78 @@
+package acphost
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// PermanentError is a spawn failure that retrying cannot fix: the host
+// config points at something that is not there (#146).
+type PermanentError struct{ Err error }
+
+func (e *PermanentError) Error() string { return e.Err.Error() }
+func (e *PermanentError) Unwrap() error { return e.Err }
+
+// Permanentf returns a PermanentError.
+func Permanentf(format string, a ...any) error {
+	return &PermanentError{Err: fmt.Errorf(format, a...)}
+}
+
+// Permanent reports whether a spawn error will repeat on every attempt:
+// a PermanentError, a missing file or directory, or an executable not on
+// PATH. Anything else (a fetch that timed out, a busy lock) is transient.
+func Permanent(err error) bool {
+	var pe *PermanentError
+	return errors.As(err, &pe) || errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist)
+}
+
+// CheckSpawn checks what the host needs before it is started, so a bad
+// path fails in the controller with a permanent error instead of as a
+// host that exits at once: the working directory (unless it is created
+// later, as a worktree is) and the agent command, resolved with the PATH
+// in env when set.
+func CheckSpawn(s Spec, dirCreated bool) error {
+	if !dirCreated {
+		if st, err := os.Stat(s.Dir); err != nil {
+			return Permanentf("session dir %s: %w", s.Dir, err)
+		} else if !st.IsDir() {
+			return Permanentf("session dir %s is not a directory", s.Dir)
+		}
+	}
+	if err := lookCommand(s.Command, s.Env); err != nil {
+		return &PermanentError{Err: fmt.Errorf("agent command %q: %w", s.Command, err)}
+	}
+	return nil
+}
+
+func lookCommand(cmd string, env []string) error {
+	if strings.Contains(cmd, "/") {
+		st, err := os.Stat(cmd)
+		if err != nil {
+			return err
+		}
+		if st.IsDir() || st.Mode()&0o111 == 0 {
+			return fmt.Errorf("not executable: %w", exec.ErrNotFound)
+		}
+		return nil
+	}
+	path := os.Getenv("PATH")
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+		}
+	}
+	for _, d := range filepath.SplitList(path) {
+		if d == "" {
+			d = "."
+		}
+		if st, err := os.Stat(filepath.Join(d, cmd)); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return nil
+		}
+	}
+	return exec.ErrNotFound
+}
