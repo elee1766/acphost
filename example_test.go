@@ -19,9 +19,11 @@ func Example() {
 	dir, _ := os.MkdirTemp("", "acphost-example")
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	// A stand-in agent: one ACP notification, then it waits for stdin.
+	// A stand-in agent: one ACP notification, then it runs until signaled.
+	// It ignores stdin EOF so the stop below always ends it by SIGTERM
+	// (stop closes stdin first, and an agent that exits on EOF races it).
 	agent := filepath.Join(dir, "agent")
-	_ = os.WriteFile(agent, []byte("#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\"}'\nexec cat >/dev/null\n"), 0o700)
+	_ = os.WriteFile(agent, []byte("#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\"}'\nexec sleep 600\n"), 0o700)
 
 	// 1. Write the spec.
 	_ = acphost.WriteSpec(dir, acphost.Spec{
