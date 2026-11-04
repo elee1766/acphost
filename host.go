@@ -193,6 +193,12 @@ func (h *Host) run() error {
 	ex := Exit{Reason: h.stopReason, ExitCode: h.agent.ProcessState.ExitCode()}
 	if ws, ok := h.agent.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		ex.Signal = ws.Signal().String()
+	} else if h.spec.Sandbox != nil && ex.ExitCode > 128 && ex.ExitCode < 128+65 {
+		// bwrap passes the agent's exit code through and reports a
+		// signal death as 128+n. Report it the way an unsandboxed
+		// agent's signal death is reported.
+		ex.Signal = syscall.Signal(ex.ExitCode - 128).String()
+		ex.ExitCode = -1
 	}
 	if readErr != nil && ex.Reason == "agent exited" {
 		ex.Reason = "agent output: " + readErr.Error()
@@ -212,7 +218,16 @@ func (h *Host) run() error {
 
 func (h *Host) startAgent() (io.Reader, error) {
 	cmd := exec.Command(h.spec.Command, h.spec.Args...)
-	cmd.Dir = h.spec.Dir
+	if h.spec.Sandbox != nil {
+		argv, err := SandboxArgs(sandboxWithEnv(*h.spec.Sandbox, h.spec.Env), h.spec.Command, h.spec.Args, h.spec.Dir)
+		if err != nil {
+			return nil, err
+		}
+		// bwrap does the chdir (Dir is a path inside the sandbox).
+		cmd = exec.Command(argv[0], argv[1:]...)
+	} else {
+		cmd.Dir = h.spec.Dir
+	}
 	cmd.Env = append(os.Environ(), h.spec.Env...)
 	cmd.Stderr = os.Stderr // host.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}

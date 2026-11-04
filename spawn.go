@@ -39,17 +39,45 @@ func Permanent(err error) bool {
 // later, as a worktree is) and the agent command, resolved with the PATH
 // in env when set.
 func CheckSpawn(s Spec, dirCreated bool) error {
-	if !dirCreated {
+	if !dirCreated && s.Sandbox == nil {
 		if st, err := os.Stat(s.Dir); err != nil {
 			return Permanentf("session dir %s: %w", s.Dir, err)
 		} else if !st.IsDir() {
 			return Permanentf("session dir %s is not a directory", s.Dir)
 		}
 	}
+	if s.Sandbox != nil {
+		// SandboxArgs looks up bwrap on PATH and checks mounts and Dir.
+		if s.Sandbox.Bwrap != "" {
+			if err := lookCommand(s.Sandbox.Bwrap, nil); err != nil {
+				return &PermanentError{Err: fmt.Errorf("sandbox bwrap %q: %w", s.Sandbox.Bwrap, err)}
+			}
+		}
+		if _, err := SandboxArgs(*s.Sandbox, s.Command, s.Args, s.Dir); err != nil {
+			return &PermanentError{Err: err}
+		}
+		// The command is resolved inside the sandbox, so it is not looked
+		// up on the host.
+		return nil
+	}
 	if err := lookCommand(s.Command, s.Env); err != nil {
 		return &PermanentError{Err: fmt.Errorf("agent command %q: %w", s.Command, err)}
 	}
 	return nil
+}
+
+// sandboxWithEnv returns s with the spec's Env (KEY=VALUE) set inside the
+// sandbox. bwrap clears the environment, and Env is what the caller asked
+// the agent to have.
+func sandboxWithEnv(s Sandbox, env []string) Sandbox {
+	extra := make([]string, 0, 3*len(env)+len(s.ExtraArgs))
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			extra = append(extra, "--setenv", k, v)
+		}
+	}
+	s.ExtraArgs = append(extra, s.ExtraArgs...)
+	return s
 }
 
 func lookCommand(cmd string, env []string) error {

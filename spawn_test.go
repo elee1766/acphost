@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPermanent(t *testing.T) {
@@ -42,4 +43,25 @@ func TestCheckSpawn(t *testing.T) {
 	assert.True(t, Permanent(err), "agent not on PATH: %v", err)
 	err = CheckSpawn(Spec{Dir: dir, Command: filepath.Join(dir, "gone")}, false)
 	assert.True(t, Permanent(err))
+}
+
+func TestCheckSpawnSandbox(t *testing.T) {
+	dir := t.TempDir()
+	bw := filepath.Join(t.TempDir(), "bwrap-stub")
+	require.NoError(t, os.WriteFile(bw, []byte("#!/bin/sh\n"), 0o700))
+	sb := Sandbox{Bwrap: bw, RW: []Mount{{Src: dir}}}
+	assert.NoError(t, CheckSpawn(Spec{Dir: dir, Command: "agent", Sandbox: &sb}, false))
+
+	err := CheckSpawn(Spec{Dir: "/elsewhere", Command: "agent", Sandbox: &sb}, false)
+	assert.True(t, Permanent(err), "dir outside rw: %v", err)
+	bad := Sandbox{Bwrap: bw, RW: []Mount{{Src: filepath.Join(dir, "gone")}}}
+	err = CheckSpawn(Spec{Dir: filepath.Join(dir, "gone"), Command: "agent", Sandbox: &bad}, false)
+	assert.True(t, Permanent(err), "missing rw: %v", err)
+	t.Setenv("PATH", dir)
+	noBwrap := Sandbox{RW: []Mount{{Src: dir}}}
+	err = CheckSpawn(Spec{Dir: dir, Command: "agent", Sandbox: &noBwrap}, false)
+	assert.True(t, Permanent(err), "bwrap not on PATH: %v", err)
+	gone := Sandbox{Bwrap: filepath.Join(dir, "bwrap"), RW: []Mount{{Src: dir}}}
+	err = CheckSpawn(Spec{Dir: dir, Command: "agent", Sandbox: &gone}, false)
+	assert.True(t, Permanent(err), "missing bwrap path: %v", err)
 }
