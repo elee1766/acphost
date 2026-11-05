@@ -52,6 +52,8 @@ type Host struct {
 	log  *slog.Logger
 	// cgroup is the session cgroup dir, empty without Spec.Cgroup.
 	cgroup string
+	// oomStart is memory.events oom_kill when the cgroup was prepared.
+	oomStart int64
 
 	journal *os.File
 	conv    Exporter // nil unless the caller supplied an ExporterFactory
@@ -219,6 +221,7 @@ func (h *Host) run() error {
 		st := readCgroupStats(h.cgroup)
 		ex.OOMKill = st.OOMKills > 0
 		ex.Cgroup = &st
+		ex.Reason = oomReason(ex.Reason, h.oomStart, st.OOMKills)
 		if err := removeCgroup(h.cgroup); err != nil {
 			h.log.Warn("remove cgroup", "err", err)
 		}
@@ -259,6 +262,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 		dir, limits, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
 		if dir != "" {
 			h.cgroup = dir
+			h.oomStart = oomKills(dir)
 		}
 		if err != nil {
 			return nil, err

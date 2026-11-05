@@ -77,6 +77,25 @@ func readCgroupStats(dir string) CgroupStats {
 	}
 }
 
+// ReasonOOM is Exit.Reason when the session cgroup's OOM killer killed a
+// process during the session (memory.events oom_kill rose). Only set
+// with Spec.Cgroup. Exit.OOMKill stays as before.
+const ReasonOOM = "oom"
+
+// oomKills reads the cgroup's memory.events oom_kill count, 0 if missing.
+func oomKills(dir string) int64 {
+	return eventsValue(filepath.Join(dir, "memory.events"), "oom_kill")
+}
+
+// oomReason returns ReasonOOM when the oom_kill count rose from start to
+// end, else reason unchanged.
+func oomReason(reason string, start, end int64) string {
+	if end > start {
+		return ReasonOOM
+	}
+	return reason
+}
+
 // singleValue reads a cgroup file holding one integer, 0 if missing.
 func singleValue(path string) int64 {
 	b, err := os.ReadFile(path)
