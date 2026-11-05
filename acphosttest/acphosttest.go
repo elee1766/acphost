@@ -53,6 +53,22 @@ func Start(t testing.TB, dir string, spec acphost.Spec, opts ...acphost.Option) 
 	if err := acphost.WriteSpec(dir, spec); err != nil {
 		t.Fatalf("acphosttest: write spec: %v", err)
 	}
+	return start(t, dir, spec, opts)
+}
+
+// StartDir is Start for a dir whose spec is already written, as by a
+// caller that builds the spec itself and only hands over the dir (#127).
+func StartDir(t testing.TB, dir string, opts ...acphost.Option) *Host {
+	t.Helper()
+	spec, err := acphost.ReadSpec(dir)
+	if err != nil {
+		t.Fatalf("acphosttest: read spec: %v", err)
+	}
+	return start(t, dir, spec, opts)
+}
+
+func start(t testing.TB, dir string, spec acphost.Spec, opts []acphost.Option) *Host {
+	t.Helper()
 	h := &Host{Dir: dir, Spec: spec, t: t, done: make(chan struct{})}
 	go func() {
 		defer close(h.done)

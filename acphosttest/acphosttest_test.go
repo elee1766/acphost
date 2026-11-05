@@ -51,6 +51,21 @@ func noLeak(t *testing.T) {
 	})
 }
 
+func TestStartDir(t *testing.T) {
+	noLeak(t)
+	dir := t.TempDir()
+	require.NoError(t, acphost.WriteSpec(dir, acphost.Spec{
+		Protocol: acphost.Protocol, Session: "s1", Command: agent(t, dir, "exec sleep 600"), Dir: dir, GCRootDir: dir, LeaseMS: 60_000,
+	}))
+	h := acphosttest.StartDir(t, dir)
+	assert.Equal(t, "s1", h.Spec.Session)
+	nc, _, _, err := acphost.Connect(t.Context(), dir)
+	require.NoError(t, err)
+	_ = nc.Close()
+	h.Stop()
+	require.NoError(t, h.Err())
+}
+
 func TestStartConnectStop(t *testing.T) {
 	noLeak(t)
 	dir := t.TempDir()
