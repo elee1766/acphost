@@ -22,7 +22,12 @@ parent-death signal, starts pasta, and on host death SIGKILLs its process
 group (pasta and the outer bwrap; bwrap's --die-with-parent is lost the
 same way, as the first CI run of the fix showed, and the outer bwrap is
 pid 1 of the sandbox pid namespace, so the agent dies with it). It
-forwards SIGTERM/SIGINT/SIGHUP and exits with pasta's status. isolation.json
-still records the bwrap/pasta argv without the helper. CI runs on
+forwards SIGTERM/SIGINT/SIGHUP and exits with pasta's status. CI runs on
 ubuntu-26.04 again, and the test logs the surviving process tree if it
 fails.
+
+2026-11-05 (#101): isolation.json now records the helper in
+`pdeath_helper` (`Isolation.PdeathHelper`, the argv prefix run before
+`bwrap`, which is still pasta then bwrap). It is omitted without pasta, so
+older readers are unaffected and Protocol stays 1. The matrix test checks
+it is set for pasta flavours and absent otherwise.
