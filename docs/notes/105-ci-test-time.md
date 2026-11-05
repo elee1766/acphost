@@ -36,5 +36,12 @@ Changes:
   already ran, and the sandbox step gets `set -o pipefail` since the
   final run no longer backs it up.
 
-No t.Parallel: the tests that dominated were data-bound, and the ones
-that now set package vars must not run alongside others.
+No t.Parallel for the unit tests: the slow ones were data-bound, and the
+ones that now set package vars must not run alongside others.
+
+First CI run on the PR: 1m6s. The cgroup step took 25s, 21s of it the
+pasta flavours of TestMatrixStopKillsGrandchild and
+TestMatrixLeaseKillsGrandchild (~5s each, the stop path waiting out the
+SIGKILL grace). Those subtests share no state (own dir, token and
+cgroup name), so they now run with t.Parallel; the matrix itself is
+unchanged.
