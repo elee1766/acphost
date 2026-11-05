@@ -335,6 +335,15 @@ frames and frames given to an Exporter are the originals. If the
 redactor returns invalid JSON the msg is written as `null` and the host
 logs a warning. Details in `docs/notes/66-redactor.md`.
 
+## Journal compression and index
+
+After a host has exited, `CompressJournal(dir, level)` replaces
+`journal.ndjson` with a seekable `journal.ndjson.zst` (level 1-22, 0
+means 3). The readers and `JournalTail` read either form, and use
+`journal.idx`, a (seq, offset) record every 256 frames, to seek instead
+of scanning. A host will not start on a compressed journal
+(`ErrJournalCompressed`). Details in `docs/notes/74-journal-zstd-index.md`.
+
 ## Isolation end-to-end test
 
 `TestIsolationTwoSubIDSessions` runs two sessions on separate
