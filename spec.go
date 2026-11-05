@@ -130,6 +130,9 @@ type Exit struct {
 	Reason   string `json:"reason"`           // human-readable cause
 	ExitCode int    `json:"exit_code"`        // agent exit code, -1 if killed by a signal
 	Signal   string `json:"signal,omitempty"` // signal that killed the agent, if any
+	// OOMKill is set when the session cgroup's OOM killer killed a
+	// process (Spec.Cgroup only).
+	OOMKill bool `json:"oom_kill,omitempty"`
 }
 
 // WriteSpec stores spec in dir.
