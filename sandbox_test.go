@@ -2,6 +2,8 @@ package acphost
 
 import (
 	"encoding/json"
+	"errors"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -145,5 +147,79 @@ func TestSandboxJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*back.Sandbox, want) {
 		t.Fatalf("round trip got %+v", *back.Sandbox)
+	}
+}
+
+func TestSandboxPastaArgs(t *testing.T) {
+	tmp := t.TempDir()
+	base := Sandbox{Bwrap: "/bin/bwrap", Pasta: "/bin/pasta", RW: []Mount{{Src: tmp}}, Network: "pasta"}
+	pastaArgv := []string{"/bin/pasta", "--config-net", "--foreground", "--quiet", "-t", "none", "-u", "none", "-T", "none", "-U", "none", "--"}
+	bw := []string{
+		"/bin/bwrap", "--die-with-parent", "--unshare-pid", "--new-session",
+		"--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--cap-drop", "ALL",
+		"--bind", tmp, tmp, "--clearenv", "--chdir", tmp, "--", "agent",
+	}
+
+	got, err := SandboxArgs(base, "agent", nil, tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := slices.Concat(pastaArgv, bw); !slices.Equal(got, want) {
+		t.Fatalf("no deny:\n got %q\nwant %q", got, want)
+	}
+
+	if _, err := exec.LookPath("nft"); err == nil {
+		s := base
+		s.Deny = []string{"10.1.2.3/8", "fd00::/8", "192.0.2.1/32"}
+		got, err := SandboxArgs(s, "agent", nil, tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules := got[len(pastaArgv)+5]
+		want := "table inet acphost { chain out { type filter hook output priority 0; policy accept; ip daddr { 10.0.0.0/8, 192.0.2.1/32 } reject; ip6 daddr { fd00::/8 } reject; }; }"
+		if rules != want {
+			t.Fatalf("rules %q", rules)
+		}
+		if !slices.Equal(got[len(got)-len(bw):], bw) {
+			t.Fatalf("bwrap argv %q", got)
+		}
+	}
+}
+
+func TestSandboxDenyValidation(t *testing.T) {
+	tmp := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		s    Sandbox
+		err  string
+	}{
+		{"deny with host", Sandbox{Network: "host", Deny: []string{"10.0.0.0/8"}}, "deny needs network pasta"},
+		{"deny with default", Sandbox{Deny: []string{"10.0.0.0/8"}}, "deny needs network pasta"},
+		{"deny with none", Sandbox{Network: "none", Deny: []string{"10.0.0.0/8"}}, "deny needs network pasta"},
+		{"bad cidr", Sandbox{Network: "pasta", Deny: []string{"10.0.0.0"}}, "deny"},
+		{"bad cidr text", Sandbox{Network: "pasta", Deny: []string{"nope/8"}}, "deny"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.s.Bwrap = "/bin/bwrap"
+			tc.s.RW = []Mount{{Src: tmp}}
+			_, err := SandboxArgs(tc.s, "agent", nil, tmp)
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Fatalf("got %v, want %q", err, tc.err)
+			}
+		})
+	}
+
+	// CheckSpawn reports a missing pasta as permanent, like a missing bwrap.
+	s := Spec{Command: "agent", Dir: tmp, Sandbox: &Sandbox{
+		Bwrap: "/bin/sh", RW: []Mount{{Src: tmp}}, Network: "pasta", Pasta: filepath.Join(tmp, "nopasta"),
+	}}
+	var pe *PermanentError
+	if err := CheckSpawn(s, false); !errors.As(err, &pe) || !strings.Contains(err.Error(), "pasta") {
+		t.Fatalf("missing pasta: got %v", err)
+	}
+	s.Sandbox.Pasta = ""
+	t.Setenv("PATH", tmp)
+	if err := CheckSpawn(s, false); !errors.As(err, &pe) || !strings.Contains(err.Error(), "pasta") {
+		t.Fatalf("pasta not on PATH: got %v", err)
 	}
 }

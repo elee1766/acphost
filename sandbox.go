@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,13 @@ type Sandbox struct {
 	// EnvKeep names host env variables passed into the sandbox. All
 	// others are cleared.
 	EnvKeep []string `json:"env_keep,omitempty"`
-	// Network is "host" (default) or "none".
+	// Network is "host" (default), "none", or "pasta" (a private
+	// network namespace with user-mode networking from passt's pasta).
 	Network string `json:"network,omitempty"`
+	// Deny lists CIDRs the agent cannot reach. Only valid with "pasta".
+	Deny []string `json:"deny,omitempty"`
+	// Pasta is the pasta binary. Empty means look it up on PATH.
+	Pasta string `json:"pasta,omitempty"`
 	// ExtraArgs are passed to bwrap after everything else, before "--".
 	ExtraArgs []string `json:"extra_args,omitempty"`
 }
@@ -96,13 +102,25 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	if s.Backend != "" && s.Backend != "bubblewrap" {
 		return nil, fmt.Errorf("sandbox: unknown backend %q", s.Backend)
 	}
-	var unshareNet bool
+	var unshareNet, pasta bool
 	switch s.Network {
 	case "", "host":
 	case "none":
 		unshareNet = true
+	case "pasta":
+		pasta = true
 	default:
 		return nil, fmt.Errorf("sandbox: unknown network %q", s.Network)
+	}
+	if len(s.Deny) > 0 && !pasta {
+		return nil, fmt.Errorf("sandbox: deny needs network pasta, not %q", s.Network)
+	}
+	var prefix []string
+	if pasta {
+		var err error
+		if prefix, err = pastaPrefix(s); err != nil {
+			return nil, err
+		}
 	}
 	bwrap := s.Bwrap
 	if bwrap == "" {
@@ -161,6 +179,11 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	if unshareNet {
 		argv = append(argv, "--unshare-net")
 	}
+	if pasta {
+		// bwrap runs as root in pasta's user namespace. Without this the
+		// agent keeps CAP_NET_ADMIN there and could delete the deny rules.
+		argv = append(argv, "--cap-drop", "ALL")
+	}
 	for _, b := range binds {
 		if b.flag == "--tmpfs" {
 			argv = append(argv, b.flag, b.dst)
@@ -182,5 +205,67 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	argv = append(argv, "--chdir", cdir)
 	argv = append(argv, s.ExtraArgs...)
 	argv = append(argv, "--", cmd)
-	return append(argv, args...), nil
+	return append(prefix, append(argv, args...)...), nil
+}
+
+// pastaPrefix returns the argv that runs bwrap under pasta. pasta creates
+// the network namespace, configures it, and only then starts its command,
+// so the agent never sees a namespace without its interface or rules.
+// With Deny, a shell loads nftables rules before exec'ing bwrap; exit 125
+// means the rules failed to load.
+func pastaPrefix(s Sandbox) ([]string, error) {
+	deny, err := denyRules(s.Deny)
+	if err != nil {
+		return nil, err
+	}
+	p := s.Pasta
+	if p == "" {
+		if p, err = exec.LookPath("pasta"); err != nil {
+			return nil, fmt.Errorf("sandbox: %w", err)
+		}
+	}
+	// Foreground, quiet, and no inbound port forwards: the agent only
+	// makes outbound connections.
+	argv := []string{p, "--config-net", "--foreground", "--quiet", "-t", "none", "-u", "none", "-T", "none", "-U", "none", "--"}
+	if deny == "" {
+		return argv, nil
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
+	}
+	nft, err := exec.LookPath("nft")
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: deny: %w", err)
+	}
+	return append(argv, sh, "-c", `"$1" "$2" || exit 125; shift 2; exec "$@"`, "acphost-net", nft, deny), nil
+}
+
+// denyRules validates CIDRs and returns an nft ruleset rejecting them on
+// output, or "" for none.
+func denyRules(cidrs []string) (string, error) {
+	var v4, v6 []string
+	for _, c := range cidrs {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return "", fmt.Errorf("sandbox: deny %q: %w", c, err)
+		}
+		p = p.Masked()
+		if p.Addr().Is4() {
+			v4 = append(v4, p.String())
+		} else {
+			v6 = append(v6, p.String())
+		}
+	}
+	if len(v4)+len(v6) == 0 {
+		return "", nil
+	}
+	r := "table inet acphost { chain out { type filter hook output priority 0; policy accept;"
+	if len(v4) > 0 {
+		r += " ip daddr { " + strings.Join(v4, ", ") + " } reject;"
+	}
+	if len(v6) > 0 {
+		r += " ip6 daddr { " + strings.Join(v6, ", ") + " } reject;"
+	}
+	return r + " }; }", nil
 }
