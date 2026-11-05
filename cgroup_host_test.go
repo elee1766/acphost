@@ -82,6 +82,14 @@ func TestCgroupExitCodeAndRemove(t *testing.T) {
 
 func TestCgroupOOM(t *testing.T) {
 	parent := needCgroup(t)
+	// With swap the agent pages out at memory.max instead of being OOM
+	// killed (seen on GitHub runners). Spec.Cgroup has no swap limit, so
+	// cap it on the parent, which bounds the session cgroup too.
+	swapMax := filepath.Join(parent, "memory.swap.max")
+	if old, err := os.ReadFile(swapMax); err == nil {
+		require.NoError(t, os.WriteFile(swapMax, []byte("0"), 0))
+		t.Cleanup(func() { _ = os.WriteFile(swapMax, old, 0) })
+	}
 	dir := t.TempDir()
 	// Grow a shell variable well past 32 MiB.
 	s := cgroupSpec(t, dir, parent, "x=$(head -c 1048576 /dev/zero | tr '\\0' a)\nwhile :; do x=\"$x$x\"; done\n",

@@ -26,6 +26,20 @@ jobs:
           sudo apt-get install -y -q bubblewrap passt nftables uidmap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: go test -race -v -run 'TestSandbox|TestUserns' ./... 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL|PASS)'
+      # Cgroup integration tests need a delegated cgroup with memory and
+      # pids. P is owned by the runner and holds no processes, so it can
+      # enable controllers. The shell moves into the leaf P/test, so P is
+      # the common ancestor for moving the agent into P/<session>.
+      - name: cgroup tests
+        run: |
+          P=/sys/fs/cgroup/acphost-ci
+          sudo mkdir $P $P/test
+          echo '+memory +pids' | sudo tee /sys/fs/cgroup/cgroup.subtree_control >/dev/null
+          echo '+memory +pids' | sudo tee $P/cgroup.subtree_control >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" $P
+          echo $$ | sudo tee $P/test/cgroup.procs >/dev/null
+          set -o pipefail
+          ACPHOST_TEST_CGROUP=$P go test -race -count=1 -v -run 'TestCgroup' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
       - run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:
