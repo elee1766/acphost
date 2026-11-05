@@ -175,6 +175,8 @@ func TestMatrixExitCode(t *testing.T) {
 			require.NoError(t, WriteSpec(dir, s))
 			require.NoError(t, Main(dir))
 			ex, _ := ReadExit(dir)
+			assert.Equal(t, f.cgroup, ex.Cgroup != nil, "cgroup stats only with a cgroup")
+			ex.Cgroup = nil
 			assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, ex)
 		})
 	}

@@ -183,7 +183,7 @@ func (h *Host) run() error {
 	}()
 	go h.acceptLoop(ln)
 	go h.leaseLoop()
-	if h.conv != nil {
+	if h.conv != nil || h.cgroup != "" {
 		go h.statsLoop()
 	}
 
@@ -216,7 +216,9 @@ func (h *Host) run() error {
 		ex.Reason = "agent output: " + readErr.Error()
 	}
 	if h.cgroup != "" {
-		ex.OOMKill = cgroupOOMKills(h.cgroup) > 0
+		st := readCgroupStats(h.cgroup)
+		ex.OOMKill = st.OOMKills > 0
+		ex.Cgroup = &st
 		if err := removeCgroup(h.cgroup); err != nil {
 			h.log.Warn("remove cgroup", "err", err)
 		}
@@ -324,7 +326,8 @@ func (h *Host) writeExit(e Exit) {
 
 // statsLoop reports conversation export drop and truncation counts to the
 // connected controller, which owns the metrics. Counts taken while no
-// controller is connected are kept for the next report.
+// controller is connected are kept for the next report. With a cgroup it
+// also sends the current CgroupStats, which are not kept between ticks.
 func (h *Host) statsLoop() {
 	t := time.NewTicker(h.opts.statsEvery)
 	defer t.Stop()
@@ -335,14 +338,13 @@ func (h *Host) statsLoop() {
 			return
 		case <-t.C:
 		}
-		d, tr := h.conv.TakeCounts()
-		pending.Dropped += d
-		pending.Truncated += tr
-		if d > 0 {
-			h.log.Warn("conversation export dropped records", "dropped", d)
-		}
-		if pending == (ExportStats{}) {
-			continue
+		if h.conv != nil {
+			d, tr := h.conv.TakeCounts()
+			pending.Dropped += d
+			pending.Truncated += tr
+			if d > 0 {
+				h.log.Warn("conversation export dropped records", "dropped", d)
+			}
 		}
 		h.mu.Lock()
 		conn := h.conn
@@ -350,8 +352,13 @@ func (h *Host) statsLoop() {
 		if conn == nil {
 			continue
 		}
-		conn.send(outItem{line: notification(h.spec.method("export_stats"), pending)})
-		pending = ExportStats{}
+		if h.cgroup != "" {
+			conn.send(outItem{line: notification(h.spec.method("cgroup_stats"), readCgroupStats(h.cgroup))})
+		}
+		if pending != (ExportStats{}) {
+			conn.send(outItem{line: notification(h.spec.method("export_stats"), pending)})
+			pending = ExportStats{}
+		}
 	}
 }
 
