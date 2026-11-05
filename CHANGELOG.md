@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/elee1766/acphost/compare/v0.8.1...v0.8.2) (2026-11-05)
+
+
+### Features
+
+* **acphosttest:** in-process test host helper ([#114](https://github.com/elee1766/acphost/issues/114)) ([#117](https://github.com/elee1766/acphost/issues/117)) ([47a5183](https://github.com/elee1766/acphost/commit/47a518386cd60baf24db280a64672b11ecc6111b))
+
 ## [0.8.1](https://github.com/elee1766/acphost/compare/v0.8.0...v0.8.1) (2026-11-05)
 
 
