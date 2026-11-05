@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.8](https://github.com/elee1766/acphost/compare/v0.8.7...v0.8.8) (2026-11-05)
+
+
+### Performance
+
+* **journal:** follow with inotify instead of 200ms polling ([#137](https://github.com/elee1766/acphost/issues/137)) ([#141](https://github.com/elee1766/acphost/issues/141)) ([bdaf00c](https://github.com/elee1766/acphost/commit/bdaf00c0c19908579c9c6b8068fe284aea8a44a0))
+
 ## [0.8.7](https://github.com/elee1766/acphost/compare/v0.8.6...v0.8.7) (2026-11-05)
 
 
