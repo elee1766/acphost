@@ -433,6 +433,11 @@ Earlier releases: `docs/notes/9-release-v0.1.0.md`,
 
 ## Develop
 
+PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
+(`feat:`, `fix:`, `docs:` and so on), checked by the `pr-title` job.
+release-please keeps a release PR open from them; merging it tags the
+next 0.x version.
+
 ```
 go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...   # v2.15.0, config in .golangci.yml
