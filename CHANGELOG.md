@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/elee1766/acphost/compare/v0.8.3...v0.8.4) (2026-11-05)
+
+
+### Features
+
+* **preflight:** report each isolation host config gap with a fix hint ([#115](https://github.com/elee1766/acphost/issues/115)) ([#122](https://github.com/elee1766/acphost/issues/122)) ([a1f50b7](https://github.com/elee1766/acphost/commit/a1f50b7b15003844745537df56faa1cc7b6f73df))
+
 ## [0.8.3](https://github.com/elee1766/acphost/compare/v0.8.2...v0.8.3) (2026-11-05)
 
 
