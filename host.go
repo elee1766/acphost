@@ -50,6 +50,8 @@ type Host struct {
 	dir  string
 	spec Spec
 	log  *slog.Logger
+	// cgroup is the session cgroup dir, empty without Spec.Cgroup.
+	cgroup string
 
 	journal *os.File
 	conv    Exporter // nil unless the caller supplied an ExporterFactory
@@ -164,6 +166,9 @@ func (h *Host) run() error {
 
 	agentOut, err := h.startAgent()
 	if err != nil {
+		if h.cgroup != "" {
+			_ = removeCgroup(h.cgroup)
+		}
 		h.writeExit(Exit{Reason: "start failed: " + err.Error(), ExitCode: -1})
 		return err
 	}
@@ -185,8 +190,15 @@ func (h *Host) run() error {
 	readErr := h.readAgent(agentOut) // returns when the agent closes stdout
 	waitErr := h.agent.Wait()
 	h.stop("agent exited")
-	// Kill anything the agent left in its group (it was the group leader).
+	// Kill anything the agent left in its group (it was the group leader)
+	// or, with a cgroup, anywhere in the cgroup.
 	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
+	if h.cgroup != "" {
+		h.killAll()
+		if !waitCgroupEmpty(h.cgroup, 5*time.Second) {
+			h.log.Warn("cgroup still populated", "cgroup", h.cgroup)
+		}
+	}
 
 	// stop has run by now, so stopReason is set. It is "agent exited"
 	// unless the host stopped the agent first (controller stop, lease).
@@ -202,6 +214,12 @@ func (h *Host) run() error {
 	}
 	if readErr != nil && ex.Reason == "agent exited" {
 		ex.Reason = "agent output: " + readErr.Error()
+	}
+	if h.cgroup != "" {
+		ex.OOMKill = cgroupOOMKills(h.cgroup) > 0
+		if err := removeCgroup(h.cgroup); err != nil {
+			h.log.Warn("remove cgroup", "err", err)
+		}
 	}
 	h.writeExit(ex)
 	if h.conv != nil {
@@ -231,6 +249,24 @@ func (h *Host) startAgent() (io.Reader, error) {
 	cmd.Env = append(os.Environ(), h.spec.Env...)
 	cmd.Stderr = os.Stderr // host.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	if h.spec.Cgroup != nil {
+		dir, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
+		if dir != "" {
+			h.cgroup = dir
+		}
+		if err != nil {
+			return nil, err
+		}
+		f, err := os.Open(dir)
+		if err != nil {
+			return nil, err
+		}
+		// clone3 places the child in the cgroup before it runs, so
+		// nothing it forks can escape. Closed once started.
+		defer func() { _ = f.Close() }()
+		cmd.SysProcAttr.UseCgroupFD = true
+		cmd.SysProcAttr.CgroupFD = int(f.Fd())
+	}
 	start := cmd.Start
 	if h.spec.User != nil {
 		var err error
@@ -265,8 +301,18 @@ func (h *Host) stop(reason string) {
 		pid := h.agent.Process.Pid
 		_ = h.agentIn.Close()
 		_ = unix.Kill(-pid, unix.SIGTERM)
-		time.AfterFunc(5*time.Second, func() { _ = unix.Kill(-pid, unix.SIGKILL) })
+		time.AfterFunc(5*time.Second, h.killAll)
 	})
+}
+
+// killAll SIGKILLs the agent's cgroup when it has one with cgroup.kill,
+// which also reaches processes that left the process group, else its
+// process group.
+func (h *Host) killAll() {
+	if h.cgroup != "" && cgroupKill(h.cgroup) {
+		return
+	}
+	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
 }
 
 func (h *Host) writeExit(e Exit) {
