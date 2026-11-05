@@ -46,6 +46,11 @@ func CheckSpawn(s Spec, dirCreated bool) error {
 			return Permanentf("session dir %s is not a directory", s.Dir)
 		}
 	}
+	if s.User != nil {
+		if err := checkUser(*s.User); err != nil {
+			return err
+		}
+	}
 	if s.Sandbox != nil {
 		// SandboxArgs looks up bwrap on PATH and checks mounts and Dir.
 		if s.Sandbox.Bwrap != "" {

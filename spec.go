@@ -78,6 +78,9 @@ type Spec struct {
 	// Sandbox, if set, runs the agent inside a sandbox. Nil runs it
 	// directly.
 	Sandbox *Sandbox `json:"sandbox,omitempty"`
+	// User, if set, runs the agent as another uid/gid in a user
+	// namespace. Nil leaves ids unchanged.
+	User *User `json:"user,omitempty"`
 }
 
 // MethodName returns the extension method for prefix and a suffix such as
