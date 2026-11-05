@@ -21,6 +21,10 @@ type Isolation struct {
 	// Bwrap is the full argv the host ran when sandboxed, including any
 	// pasta prefix.
 	Bwrap []string `json:"bwrap,omitempty"`
+	// PdeathHelper is the argv prefix of the pdeath helper the host runs
+	// in front of Bwrap with network pasta (#76). The process chain is
+	// PdeathHelper, then Bwrap (pasta, then bwrap). Nil without pasta.
+	PdeathHelper []string `json:"pdeath_helper,omitempty"`
 }
 
 // CgroupApplied is the session cgroup and the limit files written to it.
