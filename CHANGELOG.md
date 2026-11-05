@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.7](https://github.com/elee1766/acphost/compare/v0.8.6...v0.8.7) (2026-11-05)
+
+
+### Features
+
+* **preflight:** check nft when sandbox deny is set ([#135](https://github.com/elee1766/acphost/issues/135)) ([#138](https://github.com/elee1766/acphost/issues/138)) ([abf00e6](https://github.com/elee1766/acphost/commit/abf00e65249ee2d5ebcca550df3d14bc3a821a8f))
+
 ## [0.8.6](https://github.com/elee1766/acphost/compare/v0.8.5...v0.8.6) (2026-11-05)
 
 
