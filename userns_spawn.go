@@ -62,6 +62,10 @@ func usernsChild() {
 	if err := syscall.Setresuid(u.UID, u.UID, u.UID); err != nil {
 		fail("setresuid %d: %v", u.UID, err)
 	}
+	// Drop the ambient caps so the agent's execve leaves it with none.
+	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
+		fail("clear ambient caps: %v", err)
+	}
 	// A credential change clears the parent-death signal.
 	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(syscall.SIGKILL), 0, 0, 0); err != nil {
 		fail("pdeathsig: %v", err)
@@ -138,6 +142,11 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserAppl
 	cmd.Path, cmd.Args, cmd.Err = "/proc/self/exe", argv, nil
 	cmd.Env = append(cmd.Env, usernsChildEnv+"="+userEnv(u))
 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUSER
+	// The helper execs before the maps exist, so execve drops the caps
+	// the new namespace gave it. Switching to ids other than the caller's
+	// own (subordinate ids) needs CAP_SETUID/CAP_SETGID, so keep them as
+	// ambient caps; usernsChild clears them before running the agent.
+	cmd.SysProcAttr.AmbientCaps = append(cmd.SysProcAttr.AmbientCaps, unix.CAP_SETUID, unix.CAP_SETGID)
 	return func() error {
 		r, w, err := os.Pipe()
 		if err != nil {
