@@ -75,6 +75,7 @@ type Host struct {
 	disconnected time.Time
 	calls        map[string]pendingCall     // host id -> controller call
 	agentReqs    map[string]json.RawMessage // agent request id -> frame, until answered
+	tap          *stderrTap                 // sandbox stderr reader, nil without Spec.Sandbox
 	initResult   json.RawMessage
 	turnEnds     [][]byte // turn_end notifications waiting for a controller
 	prompts      int      // session/prompt calls in flight
@@ -209,8 +210,9 @@ func (h *Host) run() error {
 		if h.cgroup != "" {
 			_ = removeCgroup(h.cgroup)
 		}
-		h.writeExit(Exit{Reason: "start failed: " + err.Error(), ExitCode: -1})
-		return err
+		ex := Exit{Reason: ReasonSpawnFailed, ExitCode: -1, Error: err.Error()}
+		h.writeExit(ex)
+		return &SpawnError{Exit: ex, Err: err}
 	}
 	h.log.Info("agent started", "pid", h.agent.Process.Pid, "command", h.spec.Command)
 
@@ -240,6 +242,12 @@ func (h *Host) run() error {
 		}
 	}
 
+	// The group is dead, so stderr is closed unless something left it.
+	var tap tapResult
+	if h.tap != nil {
+		tap = h.tap.wait(2 * time.Second)
+	}
+
 	// stop has run by now, so stopReason is set. It is "agent exited"
 	// unless the host stopped the agent first (controller stop, lease).
 	ex := Exit{Reason: h.stopReason, ExitCode: h.agent.ProcessState.ExitCode()}
@@ -251,6 +259,18 @@ func (h *Host) run() error {
 		// agent's signal death is reported.
 		ex.Signal = syscall.Signal(ex.ExitCode - 128).String()
 		ex.ExitCode = -1
+	}
+	// bwrap writes an exit-code status line once the agent has run, and
+	// the userns and pdeath helpers prefix their errors. A non-zero exit
+	// the host did not cause, with no status line or with a helper error,
+	// is a setup failure: a bad bwrap argument or mount, a missing
+	// command, pasta or the deny rules failing, or setresuid refused.
+	var spawnErr *SpawnError
+	if h.tap != nil && ex.Reason == "agent exited" && ex.Signal == "" {
+		if msg := tap.setupError(h.spec.Sandbox != nil, ex.ExitCode); msg != "" {
+			ex.Reason, ex.Error = ReasonSpawnFailed, msg
+			spawnErr = &SpawnError{Err: errors.New(msg)}
+		}
 	}
 	if readErr != nil && ex.Reason == "agent exited" {
 		ex.Reason = "agent output: " + readErr.Error()
@@ -274,6 +294,10 @@ func (h *Host) run() error {
 		cancel()
 	}
 	h.log.Info("host exiting", "exit", ex, "wait", waitErr)
+	if spawnErr != nil {
+		spawnErr.Exit = ex
+		return spawnErr
+	}
 	return nil
 }
 
@@ -285,8 +309,16 @@ func (h *Host) startAgent() (io.Reader, error) {
 	// pdeathEnv selects the pdeath helper for pasta (see pdeathChildEnv).
 	var pdeathEnv string
 	if h.spec.Sandbox != nil {
-		argv, net, err := sandboxArgs(sandboxWithEnv(*h.spec.Sandbox, h.spec.Env), h.spec.Command, h.spec.Args, h.spec.Dir)
+		sb := sandboxWithEnv(*h.spec.Sandbox, h.spec.Env)
+		// The status lines tell a bwrap setup failure from an agent exit
+		// (see stderrTap). bwrap closes the status fd in the sandbox, so
+		// it is a dup of stderr made just for bwrap (statusWrap).
+		sb.ExtraArgs = append([]string{"--json-status-fd", "3"}, sb.ExtraArgs...)
+		argv, net, err := sandboxArgs(sb, h.spec.Command, h.spec.Args, h.spec.Dir)
 		if err != nil {
+			return nil, err
+		}
+		if argv, err = statusWrap(argv); err != nil {
 			return nil, err
 		}
 		iso.Bwrap, iso.Network = argv, net
@@ -305,6 +337,16 @@ func (h *Host) startAgent() (io.Reader, error) {
 		cmd.Env = append(cmd.Env, pdeathEnv)
 	}
 	cmd.Stderr = os.Stderr // host.log
+	if h.spec.Sandbox != nil || h.spec.User != nil {
+		tap, w, err := newStderrTap(os.Stderr)
+		if err != nil {
+			return nil, err
+		}
+		cmd.Stderr = w
+		// The child holds its own copy once started.
+		defer func() { _ = w.Close() }()
+		h.tap = tap
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	if h.spec.Cgroup != nil {
 		dir, limits, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
@@ -783,7 +825,9 @@ func WithMethodPrefix(p string) ConnectOption {
 
 // Connect dials a host's acp.sock and performs the hello handshake. The
 // returned reader holds any bytes already buffered after the welcome line.
-// It fails if the host uses a different extension method prefix.
+// It fails if the host uses a different extension method prefix. When
+// the host is gone and its exit.json says ReasonSpawnFailed, the error is
+// a *SpawnError, so a caller retrying until the socket appears can stop.
 func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, *bufio.Reader, Welcome, error) {
 	var o connectOptions
 	for _, opt := range opts {
@@ -793,6 +837,9 @@ func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, 
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "unix", filepath.Join(dir, ACPSocket))
 	if err != nil {
+		if se := spawnFailure(dir); se != nil {
+			return nil, nil, w, se
+		}
 		return nil, nil, w, err
 	}
 	fail := func(err error) (net.Conn, *bufio.Reader, Welcome, error) {
@@ -807,6 +854,11 @@ func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, 
 	rd := bufio.NewReaderSize(nc, 1<<20)
 	line, err := rd.ReadBytes('\n')
 	if err != nil {
+		// The socket is up before the agent starts, so a host whose
+		// spawn failed closes it without a welcome.
+		if se := spawnFailure(dir); se != nil {
+			return fail(se)
+		}
 		return fail(fmt.Errorf("host welcome: %w", err))
 	}
 	_ = nc.SetReadDeadline(time.Time{})

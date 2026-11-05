@@ -141,7 +141,28 @@ type Exit struct {
 	// Cgroup is the session cgroup's final usage, read just before it was
 	// removed (Spec.Cgroup only).
 	Cgroup *CgroupStats `json:"cgroup,omitempty"`
+	// Error is the setup error when Reason is ReasonSpawnFailed.
+	Error string `json:"error,omitempty"`
 }
+
+// ReasonSpawnFailed is Exit.Reason when the agent never ran: the command,
+// cgroup, user namespace, pasta or bwrap setup failed (#100). Exit.Error
+// holds the setup error.
+const ReasonSpawnFailed = "spawn failed"
+
+// SpawnError is returned by Main and Connect when the host could not
+// start the agent. errors.As it to tell a setup failure from a host that
+// is not up yet.
+type SpawnError struct {
+	Exit Exit  // exit.json as written by the host
+	Err  error // the setup error
+}
+
+// Error returns "spawn failed: " and the setup error.
+func (e *SpawnError) Error() string { return ReasonSpawnFailed + ": " + e.Err.Error() }
+
+// Unwrap returns the setup error.
+func (e *SpawnError) Unwrap() error { return e.Err }
 
 // WriteSpec stores spec in dir.
 func WriteSpec(dir string, s Spec) error {
