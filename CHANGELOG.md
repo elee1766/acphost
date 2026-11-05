@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/elee1766/acphost/compare/v0.8.0...v0.8.1) (2026-11-05)
+
+
+### Performance
+
+* **journal:** read JournalTail from the end of the journal ([#112](https://github.com/elee1766/acphost/issues/112)) ([#116](https://github.com/elee1766/acphost/issues/116)) ([4188828](https://github.com/elee1766/acphost/commit/418882851ff0339e7bc566a685e2bfdf23684fbf))
+
 ## [0.8.0](https://github.com/elee1766/acphost/compare/v0.7.0...v0.8.0) (2026-11-05)
 
 
