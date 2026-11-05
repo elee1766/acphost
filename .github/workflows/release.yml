@@ -1,0 +1,28 @@
+name: release
+
+# release-please keeps one release PR open with the next 0.x version and
+# CHANGELOG (#88). Ordinary merges only update it; merging the release
+# PR tags the release, which is the Go module version.
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # An App token, not GITHUB_TOKEN: a PR opened with GITHUB_TOKEN gets
+      # no CI runs, so the required checks never report on the release PR.
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

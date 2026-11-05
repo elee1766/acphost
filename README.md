@@ -380,6 +380,15 @@ means 3). The readers and `JournalTail` read either form, and use
 of scanning. A host will not start on a compressed journal
 (`ErrJournalCompressed`). Details in `docs/notes/74-journal-zstd-index.md`.
 
+## Session names and socket path
+
+`CheckSpawn` rejects a session name that is not one path element or
+whose GC root link name is over 255 bytes. With `WithHostDir(dir)` it
+also rejects a session dir whose `acp.sock` path is over
+`MaxSocketPath` (107 bytes). `CheckSocketPath` and `SocketPath` are
+exported for callers that pick dirs. Both are `PermanentError`s. Details
+in `docs/notes/79-session-names.md`.
+
 ## Isolation end-to-end test
 
 `TestIsolationTwoSubIDSessions` runs two sessions on separate
@@ -394,6 +403,15 @@ go test -run TestIsolationTwoSubIDSessions -v .
 CI runs it. Details in `docs/notes/67-isolation-e2e.md`.
 
 ## Release notes
+
+v0.7.0 (2026-11-05): journal compression with a seq index, and session
+name and socket path checks. `Protocol` stays 1. Details in
+`docs/notes/90-release-v0.7.0.md`.
+
+- `CompressJournal`, `journal.idx`, `ErrJournalCompressed` (#74).
+- `CheckSpawn` session name checks, `WithHostDir`, `CheckSocketPath`
+  (#79).
+- `Spec.Cgroup` placement test (#80).
 
 v0.6.0 (2026-11-05): journal redaction and a fix for subordinate id
 maps. `Protocol` stays 1. Details in `docs/notes/68-release-v0.6.0.md`.
@@ -429,9 +447,15 @@ v0.2.0 behavior.
 
 Earlier releases: `docs/notes/9-release-v0.1.0.md`,
 `docs/notes/16-release-v0.2.0.md`, `docs/notes/38-release-v0.3.0.md`,
-`docs/notes/53-release-v0.4.0.md`, `docs/notes/60-release-v0.5.0.md`.
+`docs/notes/53-release-v0.4.0.md`, `docs/notes/60-release-v0.5.0.md`,
+`docs/notes/68-release-v0.6.0.md`.
 
 ## Develop
+
+PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
+(`feat:`, `fix:`, `docs:` and so on), checked by the `pr-title` job.
+release-please keeps a release PR open from them; merging it tags the
+next 0.x version.
 
 ```
 go build ./... && go vet ./... && go test ./...
