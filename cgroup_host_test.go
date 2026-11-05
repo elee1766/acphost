@@ -230,6 +230,8 @@ func TestCgroupSetupDelegation(t *testing.T) {
 	require.NoError(t, WriteSpec(dir, s))
 	require.NoError(t, Main(dir))
 	ex, _ := ReadExit(dir)
+	require.NotNil(t, ex.Cgroup)
+	ex.Cgroup = nil
 	assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, ex)
 	assert.NoDirExists(t, filepath.Join(sessions, "s1"))
 }
