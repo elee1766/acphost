@@ -2,7 +2,6 @@ package acphost
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,23 +55,6 @@ func ReadJournal(path string, since int64) ([]Frame, int64, error) {
 		out = out[len(out)-int(-since):]
 	}
 	return out, off, err
-}
-
-// FollowJournal calls fn for each frame appended to path after byte offset
-// off until ctx ends. The journal is append-only, so polling is enough.
-func FollowJournal(ctx context.Context, path string, off int64, fn func(Frame)) error {
-	for {
-		var err error
-		off, err = readFrom(path, off, fn)
-		if err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
 }
 
 // readFrom reads complete lines from off and returns the offset after the
