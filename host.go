@@ -87,7 +87,7 @@ type Host struct {
 // Main runs the host for the session directory dir until the agent exits.
 // It is the body of the caller's host subcommand (`jobshop session-host`).
 func Main(dir string, opts ...Option) error {
-	o := options{statsEvery: 10 * time.Second}
+	o := options{statsEvery: 10 * time.Second, killGrace: 5 * time.Second}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -367,7 +367,7 @@ func (h *Host) stop(reason string) {
 		pid := h.agent.Process.Pid
 		_ = h.agentIn.Close()
 		_ = unix.Kill(-pid, unix.SIGTERM)
-		time.AfterFunc(5*time.Second, h.killAll)
+		time.AfterFunc(h.opts.killGrace, h.killAll)
 	})
 }
 

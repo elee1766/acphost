@@ -216,6 +216,10 @@ func checkIsolation(t *testing.T, f features, dir string, s Spec) {
 	}
 }
 
+// shortGrace cuts the SIGTERM to SIGKILL wait. Under pasta the agent
+// does not get SIGTERM, so every stop waited the full 5s (#105).
+func shortGrace(o *options) { o.killGrace = 200 * time.Millisecond }
+
 func TestMatrixStopKillsGrandchild(t *testing.T) {
 	for _, f := range matrix {
 		t.Run(f.String(), func(t *testing.T) {
@@ -225,7 +229,7 @@ func TestMatrixStopKillsGrandchild(t *testing.T) {
 			s := matrixSpec(t, f, dir, grandchildScript(f, token))
 			require.NoError(t, WriteSpec(dir, s))
 			done := make(chan error, 1)
-			go func() { done <- Main(dir) }()
+			go func() { done <- Main(dir, shortGrace) }()
 			require.Eventually(t, func() bool { return procWith(token) }, 5*time.Second, 20*time.Millisecond)
 			reconnectTwice(t, dir)
 			stopHost(t, dir, done)
@@ -247,7 +251,7 @@ func TestMatrixLeaseKillsGrandchild(t *testing.T) {
 			s.LeaseMS = 500
 			require.NoError(t, WriteSpec(dir, s))
 			done := make(chan error, 1)
-			go func() { done <- Main(dir) }()
+			go func() { done <- Main(dir, shortGrace) }()
 			select {
 			case err := <-done:
 				require.NoError(t, err)

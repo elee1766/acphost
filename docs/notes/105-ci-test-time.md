@@ -38,3 +38,12 @@ Changes:
 
 No t.Parallel: the tests that dominated were data-bound, and the ones
 that now set package vars must not run alongside others.
+
+First CI run on the PR: 1m6s. The cgroup step took 25s, 21s of it the
+pasta flavours of TestMatrixStopKillsGrandchild and
+TestMatrixLeaseKillsGrandchild (~5s each: the stop path waiting out the
+5s SIGTERM to SIGKILL grace). Running the flavours with t.Parallel
+failed: hosts in one test process share the subreaper and signal
+handling. Instead the grace is an internal option (`killGrace`, 5s by
+default) and those two tests set 200ms. The SIGKILL path they check is
+the same; the matrix itself is unchanged.
