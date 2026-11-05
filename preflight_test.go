@@ -1,6 +1,7 @@
 package acphost
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,8 +14,16 @@ type preflightFixture struct {
 	parent string
 }
 
+// newPreflightFixture builds a fake host where every check passes: a
+// cgroup root with a delegated parent, etc/subuid and etc/subgid for the
+// caller, and the helper binaries on PATH.
 func newPreflightFixture(t *testing.T) preflightFixture {
 	t.Helper()
+	oldE, oldG := getegid, getgroups
+	t.Cleanup(func() { getegid, getgroups = oldE, oldG })
+	getegid = func() int { return 4242 }
+	getgroups = func() ([]int, error) { return []int{4242}, nil }
+
 	root := t.TempDir()
 	cg := filepath.Join(root, "cgroup")
 	parent := filepath.Join(cg, "user.slice", "sessions")
@@ -25,6 +34,7 @@ func newPreflightFixture(t *testing.T) preflightFixture {
 			t.Fatal(err)
 		}
 	}
+	write(t, filepath.Join(parent, "cgroup.controllers"), "cpu memory pids\n")
 	write(t, filepath.Join(parent, "cgroup.subtree_control"), "cpu memory pids\n")
 	uid := 4242
 	write(t, filepath.Join(etc, "subuid"), strconv.Itoa(uid)+":100000:65536\n")
@@ -35,7 +45,10 @@ func newPreflightFixture(t *testing.T) preflightFixture {
 		}
 	}
 	return preflightFixture{
-		env:    preflightEnv{cgroupRoot: cg, etc: etc, path: bin, uid: uid},
+		env: preflightEnv{
+			cgroupRoot: cg, etc: etc, path: bin, uid: uid,
+			privileged: func(string) error { return nil },
+		},
 		parent: parent,
 	}
 }
@@ -50,7 +63,7 @@ func write(t *testing.T, path, s string) {
 func (f preflightFixture) spec() Spec {
 	return Spec{
 		Cgroup:  &Cgroup{Parent: f.parent, MemoryMax: "1G", PidsMax: 100},
-		User:    &User{UID: 1000, GID: 1000, MapUID: 101000, MapGID: 101000},
+		User:    &User{UID: 1000, GID: 1000, MapUID: 101000, MapGID: 101000, MapCount: 1000},
 		Sandbox: &Sandbox{Network: "pasta"},
 	}
 }
@@ -64,14 +77,28 @@ func checkFor(r PreflightReport, feature string) (PreflightCheck, bool) {
 	return PreflightCheck{}, false
 }
 
+var allChecks = []string{
+	"cgroup.parent", "cgroup.writable", "cgroup.controllers",
+	"user.newuidmap", "user.newgidmap", "user.subuid", "user.subgid", "user.map",
+	"sandbox.bwrap", "network.pasta",
+}
+
 func TestPreflightAllOK(t *testing.T) {
 	f := newPreflightFixture(t)
 	r, err := preflight(f.spec(), f.env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Checks) != 4 || !r.OK() {
+	if len(r.Checks) != len(allChecks) || !r.OK() {
 		t.Fatalf("report = %+v", r)
+	}
+	for i, c := range r.Checks {
+		if c.Name != allChecks[i] || c.Hint != "" {
+			t.Fatalf("check %d = %+v, want %s", i, c, allChecks[i])
+		}
+	}
+	if s := r.String(); strings.Contains(s, "FAIL") || !strings.Contains(s, "ok   user.subuid") {
+		t.Fatalf("text = %q", s)
 	}
 }
 
@@ -94,67 +121,126 @@ func TestPreflightNoPastaNoNetworkCheck(t *testing.T) {
 	}
 }
 
+// TestPreflightMissing removes one piece of the fake host per case and
+// expects exactly that check to fail, with its reason and fix hint.
 func TestPreflightMissing(t *testing.T) {
 	cases := []struct {
-		name, feature, reason string
-		mutate                func(f *preflightFixture, s *Spec)
+		name, check, reason, hint string
+		mutate                    func(f *preflightFixture, s *Spec)
 	}{
-		{"cgroup parent missing", "cgroup", "no such file", func(f *preflightFixture, s *Spec) {
+		{"cgroup parent missing", "cgroup.parent", "no such file", "SetupDelegation", func(f *preflightFixture, s *Spec) {
 			s.Cgroup.Parent = filepath.Join(f.env.cgroupRoot, "nope")
 		}},
-		{"cgroup outside root", "cgroup", "is not under", func(_ *preflightFixture, s *Spec) {
+		{"cgroup outside root", "cgroup.parent", "is not under", "cgroup v2 mount", func(_ *preflightFixture, s *Spec) {
 			s.Cgroup.Parent = "/tmp"
 		}},
-		{"cgroup controller", "cgroup", "controllers memory", func(f *preflightFixture, _ *Spec) {
+		{"cgroup relative", "cgroup.parent", "not absolute", "absolute path", func(_ *preflightFixture, s *Spec) {
+			s.Cgroup.Parent = "sessions"
+		}},
+		{"cgroup not writable", "cgroup.writable", "not writable", "Delegate=yes", func(f *preflightFixture, _ *Spec) {
+			if err := os.Chmod(f.parent, 0o555); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"cgroup controller not enabled", "cgroup.controllers", "controllers memory not enabled", `echo "+memory" > `, func(f *preflightFixture, _ *Spec) {
 			write(t, filepath.Join(f.parent, "cgroup.subtree_control"), "pids\n")
 		}},
-		{"newuidmap", "user_namespace", "newuidmap not on PATH", func(f *preflightFixture, _ *Spec) {
+		{"cgroup controller not delegated", "cgroup.controllers", "memory not in", "Delegate=", func(f *preflightFixture, _ *Spec) {
+			write(t, filepath.Join(f.parent, "cgroup.controllers"), "pids\n")
+			write(t, filepath.Join(f.parent, "cgroup.subtree_control"), "pids\n")
+		}},
+		{"newuidmap", "user.newuidmap", "newuidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.path, "newuidmap"))
 		}},
-		{"newgidmap", "user_namespace", "newgidmap not on PATH", func(f *preflightFixture, _ *Spec) {
+		{"newgidmap", "user.newgidmap", "newgidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.path, "newgidmap"))
 		}},
-		{"subuid range", "user_namespace", "subuid range", func(_ *preflightFixture, s *Spec) {
-			s.User.MapUID = 500000
+		{"newuidmap not setuid", "user.newuidmap", "not setuid", "chmod u+s", func(f *preflightFixture, _ *Spec) {
+			f.env.privileged = func(p string) error {
+				if strings.HasSuffix(p, "newuidmap") {
+					return errors.New("not setuid root and has no file capabilities")
+				}
+				return nil
+			}
 		}},
-		{"subgid range", "user_namespace", "subgid range", func(f *preflightFixture, s *Spec) {
+		{"subuid entry missing", "user.subuid", "entries: none", "usermod --add-subuids 101000-101999 4242", func(f *preflightFixture, _ *Spec) {
+			write(t, filepath.Join(f.env.etc, "subuid"), "someone:100000:65536\n")
+		}},
+		{"subuid file missing", "user.subuid", "subuid range", "--add-subuids 101000-101000", func(f *preflightFixture, s *Spec) {
+			_ = os.Remove(filepath.Join(f.env.etc, "subuid"))
+			s.User.MapCount = 0
+		}},
+		{"subgid file missing", "user.subgid", "entries: none", "usermod --add-subgids 101000-101999 4242", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.etc, "subgid"))
-			s.User.MapGID = 987654
 		}},
-		{"subuid span", "user_namespace", "not inside one", func(_ *preflightFixture, s *Spec) {
-			s.User.MapUID, s.User.MapGID, s.User.MapCount = 160000, 100000, 10000
+		{"subuid range too small", "user.subuid", "not inside one", "--add-subuids 160000-169999", func(_ *preflightFixture, s *Spec) {
+			s.User.MapUID, s.User.MapCount = 160000, 10000
 		}},
-		{"subuid malformed", "user_namespace", "line 1", func(f *preflightFixture, _ *Spec) {
+		{"subgid range too small", "user.subgid", "not inside one", "--add-subgids 160000-169999", func(_ *preflightFixture, s *Spec) {
+			s.User.MapUID, s.User.MapGID, s.User.MapCount = 100000, 160000, 10000
+		}},
+		{"subuid malformed", "user.subuid", "line 1", "owner:start:count", func(f *preflightFixture, _ *Spec) {
 			write(t, filepath.Join(f.env.etc, "subuid"), "garbage\n")
 		}},
-		{"bwrap", "sandbox", "bwrap not found", func(f *preflightFixture, _ *Spec) {
+		{"group not owned", "user.map", "group 27", "spec.user", func(_ *preflightFixture, s *Spec) {
+			s.User.Groups = []int{27}
+		}},
+		{"bwrap", "sandbox.bwrap", "bwrap not found", "bubblewrap", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.path, "bwrap"))
 		}},
-		{"pasta", "network", "pasta not found", func(f *preflightFixture, _ *Spec) {
+		{"pasta", "network.pasta", "pasta not found", "passt", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.path, "pasta"))
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.check == "cgroup.writable" && os.Geteuid() == 0 {
+				t.Skip("root can write a read-only dir")
+			}
 			f := newPreflightFixture(t)
 			s := f.spec()
 			tc.mutate(&f, &s)
+			// Registered after TempDir's cleanup, so it runs first.
+			t.Cleanup(func() { _ = os.Chmod(f.parent, 0o755) })
 			r, err := preflight(s, f.env)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if r.OK() {
-				t.Fatalf("report OK, want %s missing: %+v", tc.feature, r)
+				t.Fatalf("report OK, want %s missing: %+v", tc.check, r)
 			}
+			found := false
 			for _, c := range r.Checks {
-				if c.Feature == tc.feature {
-					if c.OK || !strings.Contains(c.Reason, tc.reason) {
-						t.Fatalf("%s = %+v, want reason containing %q", tc.feature, c, tc.reason)
+				if c.Name == tc.check {
+					found = true
+					if c.OK || !strings.Contains(c.Reason, tc.reason) || !strings.Contains(c.Hint, tc.hint) {
+						t.Fatalf("%s = %+v, want reason %q hint %q", tc.check, c, tc.reason, tc.hint)
 					}
 				} else if !c.OK {
 					t.Fatalf("unexpected failure %+v", c)
 				}
 			}
+			if !found {
+				t.Fatalf("no %s check: %+v", tc.check, r)
+			}
+			if txt := r.String(); !strings.Contains(txt, "FAIL "+tc.check+": ") || !strings.Contains(txt, "fix: ") {
+				t.Fatalf("text = %q", txt)
+			}
 		})
+	}
+}
+
+func TestSetuidOrCaps(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "newuidmap")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o4755); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() != 0 {
+		if err := setuidOrCaps(p); err == nil {
+			t.Fatal("non-root setuid file accepted")
+		}
+	}
+	if err := setuidOrCaps(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Fatal("missing file accepted")
 	}
 }
