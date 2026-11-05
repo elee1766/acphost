@@ -205,7 +205,80 @@ One-time setup (root): the host user needs a delegated subtree.
 
   and use `/sys/fs/cgroup/acphost` as `Parent`.
 
+### SetupDelegation
+
+`acphost.SetupDelegation(own, controllers)` does the in-cgroup steps
+above from Go. `own` is a delegated cgroup v2 directory, usually
+`DelegatedCgroup().Path`. It moves the calling process into
+`<own>/controller`, enables `controllers` in
+`<own>/cgroup.subtree_control`, creates `<own>/sessions`, enables them
+there too, and returns `<own>/sessions` for `Cgroup.Parent`:
+
+```go
+info, err := acphost.DelegatedCgroup()
+if err == nil && info.Writable {
+	parent, err := acphost.SetupDelegation(info.Path, []string{"cpu", "memory", "pids"})
+	if err == nil {
+		spec.Cgroup = &acphost.Cgroup{Parent: parent, MemoryMax: "4294967296"}
+	}
+}
+```
+
+- Idempotent: a repeat call (for example after the controller restarts)
+  writes only what is missing and returns the same path.
+- Returns a `*acphost.PermanentError` naming the file when a controller
+  is not in `<own>/cgroup.controllers`, that file cannot be read, or a
+  directory or file cannot be created or written (permission denied,
+  read-only). Retrying will not help.
+
+### Usage stats
+
+With `Spec.Cgroup`, the host sends the notification
+`acphost.MethodCgroupStats` (`<prefix>cgroup_stats`) to the connected
+controller on each stats tick. The params are a `CgroupStats`:
+
+| field | source |
+|---|---|
+| `memory_current` | `memory.current`, bytes |
+| `memory_peak` | `memory.peak`, bytes (0 before Linux 5.19) |
+| `cpu_usage_usec` | `cpu.stat` usage_usec |
+| `oom_kills` | `memory.events` oom_kill |
+| `memory_max_events` | `memory.events` max |
+
+Values are kernel counters, not deltas. A missing file reads as 0. The
+final read, taken just before the cgroup is removed, is stored as
+`"cgroup"` in `exit.json` (`Exit.Cgroup`), next to `oom_kill`.
+
+## Isolation report
+
+Once the agent starts, the host writes `isolation.json` in the session
+dir: what it actually applied, not what the spec asked for. Read it
+with `acphost.ReadIsolation(dir)`:
+
+```go
+iso, ok, err := acphost.ReadIsolation(dir)
+// ok is false (err nil) when the file is absent: an older host.
+if err == nil && ok && iso.Cgroup != nil {
+	fmt.Println(iso.Cgroup.Dir, iso.Cgroup.Limits)
+}
+```
+
+- `cgroup`: `dir` and the `limits` (`file`, `value`) written.
+- `user`: `uid_map` and `gid_map` lines given to newuidmap/newgidmap.
+- `network`: `mode` (`host`, `none`, `pasta`), the `deny` CIDRs loaded
+  and `pasta_started`.
+- `bwrap`: the full argv run, including any pasta prefix.
+
+Unused parts are omitted. A host with no isolation writes `{}`.
+
 ## Release notes
+
+v0.4.0 (2026-11-05): cgroup setup, usage stats and an isolation report.
+`Protocol` stays 1. Details in `docs/notes/53-release-v0.4.0.md`.
+
+- `SetupDelegation` (#47).
+- `MethodCgroupStats` notification and `Exit.Cgroup` (#48).
+- `isolation.json` and `ReadIsolation` (#49).
 
 v0.3.0 (2026-11-05): optional isolation for the agent. `Protocol` stays
 1. All new spec fields are optional, and leaving them unset keeps the
@@ -219,7 +292,7 @@ v0.2.0 behavior.
   `DelegatedCgroup()` (#27, #28, #41).
 
 Earlier releases: `docs/notes/9-release-v0.1.0.md`,
-`docs/notes/16-release-v0.2.0.md`.
+`docs/notes/16-release-v0.2.0.md`, `docs/notes/38-release-v0.3.0.md`.
 
 ## Develop
 
