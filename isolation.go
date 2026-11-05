@@ -47,11 +47,15 @@ type UserApplied struct {
 }
 
 // NetworkApplied is the sandbox network mode ("host", "none" or
-// "pasta"), the normalized deny CIDRs loaded as rules, and whether the
-// agent started under pasta.
+// "pasta"), the normalized deny CIDRs loaded as rules, pasta's DNS
+// forward, the file bound over /etc/resolv.conf, and whether the agent
+// started under pasta.
 type NetworkApplied struct {
 	Mode         string   `json:"mode"`
 	Deny         []string `json:"deny,omitempty"`
+	DNSForward   string   `json:"dns_forward,omitempty"`
+	DNSHost      string   `json:"dns_host,omitempty"`
+	ResolvConf   string   `json:"resolv_conf,omitempty"`
 	PastaStarted bool     `json:"pasta_started,omitempty"`
 }
 

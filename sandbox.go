@@ -37,8 +37,27 @@ type Sandbox struct {
 	Deny []string `json:"deny,omitempty"`
 	// Pasta is the pasta binary. Empty means look it up on PATH.
 	Pasta string `json:"pasta,omitempty"`
+	// DNS forwards DNS queries from an address inside pasta's namespace
+	// to a host resolver. Only valid with "pasta". Nil leaves pasta's
+	// default. See docs/notes/124-sandbox-dns.md.
+	DNS *DNS `json:"dns,omitempty"`
+	// ResolvConf is a host file bound read-only over /etc/resolv.conf in
+	// the sandbox, typically naming DNS.Forward. Empty binds nothing.
+	ResolvConf string `json:"resolv_conf,omitempty"`
 	// ExtraArgs are passed to bwrap after everything else, before "--".
 	ExtraArgs []string `json:"extra_args,omitempty"`
+}
+
+// DNS is pasta's DNS forwarding. Queries the agent sends to Forward (an
+// address inside the namespace) go to Host on the host side, which may be
+// a loopback resolver such as systemd-resolved's 127.0.0.53 that the
+// namespace cannot reach directly.
+type DNS struct {
+	// Forward is passed as --dns-forward. Required.
+	Forward string `json:"forward"`
+	// Host is passed as --dns-host. Empty keeps pasta's default (the
+	// host's first resolv.conf nameserver).
+	Host string `json:"host,omitempty"`
 }
 
 // Mount is one mount in a Sandbox. In JSON it is either a path string
@@ -122,7 +141,15 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	if len(s.Deny) > 0 && !pasta {
 		return fail(fmt.Errorf("sandbox: deny needs network pasta, not %q", s.Network))
 	}
-	net := &NetworkApplied{Mode: s.Network}
+	if s.DNS != nil && !pasta {
+		return fail(fmt.Errorf("sandbox: dns needs network pasta, not %q", s.Network))
+	}
+	if s.ResolvConf != "" {
+		if _, err := os.Stat(s.ResolvConf); err != nil {
+			return fail(fmt.Errorf("sandbox: resolv_conf: %w", err))
+		}
+	}
+	net := &NetworkApplied{Mode: s.Network, ResolvConf: s.ResolvConf}
 	if net.Mode == "" {
 		net.Mode = "host"
 	}
@@ -131,6 +158,9 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 		var err error
 		if prefix, net.Deny, err = pastaPrefix(s); err != nil {
 			return fail(err)
+		}
+		if s.DNS != nil {
+			net.DNSForward, net.DNSHost = s.DNS.Forward, s.DNS.Host
 		}
 	}
 	bwrap := s.Bwrap
@@ -205,6 +235,10 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	for _, h := range s.Hide {
 		argv = append(argv, "--tmpfs", filepath.Clean(h))
 	}
+	// After all binds, so a bind of /etc does not cover it.
+	if s.ResolvConf != "" {
+		argv = append(argv, "--ro-bind", s.ResolvConf, "/etc/resolv.conf")
+	}
 	// The agent sees only the env it was given, so host secrets do not
 	// leak in by default.
 	argv = append(argv, "--clearenv")
@@ -238,7 +272,15 @@ func pastaPrefix(s Sandbox) ([]string, []string, error) {
 	}
 	// Foreground, quiet, and no inbound port forwards: the agent only
 	// makes outbound connections.
-	argv := []string{p, "--config-net", "--foreground", "--quiet", "-t", "none", "-u", "none", "-T", "none", "-U", "none", "--"}
+	argv := []string{p, "--config-net", "--foreground", "--quiet", "-t", "none", "-u", "none", "-T", "none", "-U", "none"}
+	if s.DNS != nil {
+		dns, err := dnsArgs(*s.DNS, cidrs)
+		if err != nil {
+			return nil, nil, err
+		}
+		argv = append(argv, dns...)
+	}
+	argv = append(argv, "--")
 	if deny == "" {
 		return argv, nil, nil
 	}
@@ -251,6 +293,30 @@ func pastaPrefix(s Sandbox) ([]string, []string, error) {
 		return nil, nil, fmt.Errorf("sandbox: deny: %w", err)
 	}
 	return append(argv, sh, "-c", `"$1" "$2" || exit 125; shift 2; exec "$@"`, "acphost-net", nft, deny), cidrs, nil
+}
+
+// dnsArgs validates d and returns pasta's DNS options. Forward must not
+// fall in a deny CIDR: the rules apply to it like any other destination,
+// so every lookup would be rejected.
+func dnsArgs(d DNS, deny []string) ([]string, error) {
+	fwd, err := netip.ParseAddr(d.Forward)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: dns forward %q: %w", d.Forward, err)
+	}
+	for _, c := range deny {
+		if netip.MustParsePrefix(c).Contains(fwd) {
+			return nil, fmt.Errorf("sandbox: dns forward %s is inside deny %s", fwd, c)
+		}
+	}
+	args := []string{"--dns-forward", fwd.String()}
+	if d.Host != "" {
+		h, err := netip.ParseAddr(d.Host)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: dns host %q: %w", d.Host, err)
+		}
+		args = append(args, "--dns-host", h.String())
+	}
+	return args, nil
 }
 
 // denyRules validates CIDRs and returns an nft ruleset rejecting them on
