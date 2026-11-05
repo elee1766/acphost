@@ -136,7 +136,7 @@ func preflightUser(u User, env preflightEnv) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", subgidFile, err)
 	}
-	_, _, err = userMaps(u, env.uid, subuid, subgid)
+	_, _, err = userMaps(u, env.uid, subuidFile, subgidFile, subuid, subgid)
 	return err
 }
 

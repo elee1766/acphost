@@ -17,12 +17,18 @@ import (
 // caller must own: its own id, a gid it holds, or an id in its
 // /etc/subuid or /etc/subgid range. Groups are supplementary gids, each
 // mapped to the same gid outside.
+//
+// MapCount, when above 1, reserves the outside ids
+// [MapUID, MapUID+MapCount) and [MapGID, MapGID+MapCount) for the
+// session (as AllocSubIDs does). Each must lie inside one subuid or
+// subgid entry; only the first id is mapped.
 type User struct {
-	UID    int   `json:"uid"`
-	GID    int   `json:"gid"`
-	MapUID int   `json:"map_uid"`
-	MapGID int   `json:"map_gid"`
-	Groups []int `json:"groups,omitempty"`
+	UID      int   `json:"uid"`
+	GID      int   `json:"gid"`
+	MapUID   int   `json:"map_uid"`
+	MapGID   int   `json:"map_gid"`
+	MapCount int   `json:"map_count,omitempty"`
+	Groups   []int `json:"groups,omitempty"`
 }
 
 // Range is one subordinate id range from /etc/subuid or /etc/subgid.
@@ -95,13 +101,40 @@ func inRanges(id int, rs []Range) bool {
 	return slices.ContainsFunc(rs, func(r Range) bool { return r.contains(id) })
 }
 
+// checkSpan returns a PermanentError unless [start, start+n) lies inside
+// a single entry of rs. Adjacent entries do not join: newuidmap checks
+// each map line against one entry.
+func checkSpan(kind, file string, start, n int, rs []Range) error {
+	if slices.ContainsFunc(rs, func(r Range) bool {
+		return start >= r.Start && start+n <= r.Start+r.Count
+	}) {
+		return nil
+	}
+	ents := make([]string, len(rs))
+	for i, r := range rs {
+		ents[i] = fmt.Sprintf("%d..%d", r.Start, r.Start+r.Count-1)
+	}
+	if len(ents) == 0 {
+		ents = []string{"none"}
+	}
+	return Permanentf("user: %ss %d..%d are not inside one %s entry (entries: %s)", kind, start, start+n-1, file, strings.Join(ents, ", "))
+}
+
 // userMaps builds the id map arguments for newuidmap and newgidmap (the
 // part after the pid: inside outside count, repeated). self is the
 // caller's uid. Ids the caller cannot map are a PermanentError. Output is
 // sorted so the same User always gives the same arguments.
-func userMaps(u User, self int, subuid, subgid []Range) (uidArgs, gidArgs []string, err error) {
-	if u.UID < 0 || u.GID < 0 || u.MapUID < 0 || u.MapGID < 0 {
+func userMaps(u User, self int, subuidFile, subgidFile string, subuid, subgid []Range) (uidArgs, gidArgs []string, err error) {
+	if u.UID < 0 || u.GID < 0 || u.MapUID < 0 || u.MapGID < 0 || u.MapCount < 0 {
 		return nil, nil, Permanentf("user: negative id")
+	}
+	if u.MapCount > 1 {
+		if err := checkSpan("uid", subuidFile, u.MapUID, u.MapCount, subuid); err != nil {
+			return nil, nil, err
+		}
+		if err := checkSpan("gid", subgidFile, u.MapGID, u.MapCount, subgid); err != nil {
+			return nil, nil, err
+		}
 	}
 	if u.MapUID != self && !inRanges(u.MapUID, subuid) {
 		return nil, nil, Permanentf("user: map_uid %d is not uid %d or in its subuid range", u.MapUID, self)
@@ -163,7 +196,7 @@ func checkUser(u User) error {
 	if err != nil {
 		return Permanentf("user: %s: %w", subgidPath, err)
 	}
-	if _, _, err := userMaps(u, self, subuid, subgid); err != nil {
+	if _, _, err := userMaps(u, self, subuidPath, subgidPath, subuid, subgid); err != nil {
 		return err
 	}
 	for _, c := range []string{"newuidmap", "newgidmap"} {
