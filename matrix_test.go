@@ -219,9 +219,6 @@ func checkIsolation(t *testing.T, f features, dir string, s Spec) {
 func TestMatrixStopKillsGrandchild(t *testing.T) {
 	for _, f := range matrix {
 		t.Run(f.String(), func(t *testing.T) {
-			// Flavours share nothing (own dir, token, cgroup name), and
-			// the pasta ones spend ~5s stopping.
-			t.Parallel()
 			dir := t.TempDir()
 			token := "acphost-mx-" + filepath.Base(dir)
 			t.Cleanup(func() { killWith(token) })
@@ -243,7 +240,6 @@ func TestMatrixStopKillsGrandchild(t *testing.T) {
 func TestMatrixLeaseKillsGrandchild(t *testing.T) {
 	for _, f := range matrix {
 		t.Run(f.String(), func(t *testing.T) {
-			t.Parallel() // see TestMatrixStopKillsGrandchild
 			dir := t.TempDir()
 			token := "acphost-mx-" + filepath.Base(dir)
 			t.Cleanup(func() { killWith(token) })
