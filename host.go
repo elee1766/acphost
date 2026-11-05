@@ -65,6 +65,9 @@ type Host struct {
 	mu           sync.Mutex
 	seq          int64
 	off          int64 // journal size, the offset after frame seq
+	lastStart    int64 // offset of frame seq
+	idxSeq       int64 // seq of the last index record
+	index        *os.File
 	dropped      int64 // agent requests refused at maxAgentReqs
 	nextID       int64
 	gen          int64
@@ -103,6 +106,11 @@ func Main(dir string, opts ...Option) error {
 		return err
 	}
 	defer unlock()
+	if _, err := os.Stat(filepath.Join(dir, CompressedJournalFile)); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, JournalFile)); errors.Is(err, os.ErrNotExist) {
+			return ErrJournalCompressed
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, PidFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		return err
 	}
@@ -138,10 +146,37 @@ func (h *Host) run() error {
 		return err
 	}
 	defer func() { _ = h.journal.Close() }()
+	jpath := filepath.Join(h.dir, JournalFile)
+	if s, err := openSource(jpath); err == nil {
+		// Bring the index up to date (a crash may have left it behind).
+		if ix, err := ensureIndex(s, jpath); err == nil {
+			h.seq = ix.lastSeq
+			// ensureIndex does not write while a host holds the lock, and
+			// this host does, so write the rebuilt or extended index here.
+			if err := writeIndex(idxPath(jpath), ix.recs); err != nil {
+				return err
+			}
+			if n := len(ix.recs); n > 0 {
+				h.idxSeq = ix.recs[n-1].seq
+			}
+		}
+		_ = s.Close()
+	}
+	h.index, err = os.OpenFile(idxPath(jpath), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		h.mu.Lock()
+		if h.seq > h.idxSeq {
+			h.writeIdx(h.seq, h.lastStart)
+		}
+		h.mu.Unlock()
+		_ = h.index.Close()
+	}()
 	if exe, err := os.Executable(); err == nil {
 		defer registerGCRoot(h.log, h.spec, exe)()
 	}
-	h.seq = lastSeq(filepath.Join(h.dir, JournalFile))
 	if st, err := h.journal.Stat(); err == nil {
 		h.off = st.Size()
 	}
@@ -422,46 +457,33 @@ func (h *Host) record(from string, line []byte) {
 	fmt.Fprintf(&b, `{"seq":%d,"t":%d,"from":%q,"msg":`, h.seq, time.Now().UnixMilli(), from)
 	b.Write(line)
 	b.WriteString("}\n")
+	start := h.off
 	n, err := h.journal.Write(b.Bytes())
 	h.off += int64(n)
+	if err == nil {
+		h.lastStart = start
+		if h.idxSeq == 0 || h.seq-h.idxSeq >= IndexEvery {
+			h.writeIdx(h.seq, start)
+		}
+	}
 	if err != nil {
 		h.log.Error("journal", "err", err)
 	}
 }
 
-func lastSeq(path string) int64 {
-	seq, _ := journalTail(path)
-	return seq
+// writeIdx appends an index record. Holding h.mu.
+func (h *Host) writeIdx(seq, off int64) {
+	if _, err := h.index.Write(appendIdx(nil, idxRec{seq, off})); err != nil {
+		h.log.Error("journal index", "err", err)
+		return
+	}
+	h.idxSeq = seq
 }
 
 // JournalTail returns the last sequence number and its time in dir's
 // journal, or zero values if there is none.
 func JournalTail(dir string) (int64, time.Time) {
 	return journalTail(filepath.Join(dir, JournalFile))
-}
-
-func journalTail(path string) (int64, time.Time) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, time.Time{}
-	}
-	defer func() { _ = f.Close() }()
-	var last, ms int64
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), maxFrame+1024)
-	for sc.Scan() {
-		var e struct {
-			Seq int64 `json:"seq"`
-			T   int64 `json:"t"`
-		}
-		if json.Unmarshal(sc.Bytes(), &e) == nil && e.Seq > last {
-			last, ms = e.Seq, e.T
-		}
-	}
-	if last == 0 {
-		return 0, time.Time{}
-	}
-	return last, time.UnixMilli(ms)
 }
 
 func (h *Host) writeAgent(line []byte) error {

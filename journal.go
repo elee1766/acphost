@@ -1,13 +1,11 @@
 package acphost
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 )
@@ -22,18 +20,38 @@ type Frame struct {
 
 // ReadJournal returns the frames in path with seq > since. With since < 0
 // it returns the last -since frames.
+// path names journal.ndjson; once compressed, journal.ndjson.zst is read
+// instead. The returned offset is into the uncompressed journal.
 func ReadJournal(path string, since int64) ([]Frame, int64, error) {
-	f, err := os.Open(path)
+	s, err := openSource(path)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = f.Close() }()
-	var out []Frame
-	off, err := scanFrames(f, 0, func(fr Frame) {
-		if since < 0 || fr.Seq > since {
-			out = append(out, fr)
+	defer func() { _ = s.Close() }()
+	var start int64
+	if since != 0 {
+		if ix, err := ensureIndex(s, path); err == nil {
+			if since > 0 {
+				start = ix.seekSeq(since + 1)
+			} else {
+				start = ix.seekSeq(ix.lastSeq + since + 1)
+			}
 		}
-	})
+	}
+	read := func(from int64) ([]Frame, int64, error) {
+		var out []Frame
+		off, err := s.scanFramesAt(from, func(fr Frame, _ int64) {
+			if since < 0 || fr.Seq > since {
+				out = append(out, fr)
+			}
+		})
+		return out, off, err
+	}
+	out, off, err := read(start)
+	if err == nil && since < 0 && len(out) < int(-since) && start > 0 {
+		// Seqs with gaps: the index guessed too late. Read it all.
+		out, off, err = read(0)
+	}
 	if since < 0 && len(out) > int(-since) {
 		out = out[len(out)-int(-since):]
 	}
@@ -44,12 +62,8 @@ func ReadJournal(path string, since int64) ([]Frame, int64, error) {
 // off until ctx ends. The journal is append-only, so polling is enough.
 func FollowJournal(ctx context.Context, path string, off int64, fn func(Frame)) error {
 	for {
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		off, err = scanFrames(f, off, fn)
-		_ = f.Close()
+		var err error
+		off, err = readFrom(path, off, fn)
 		if err != nil {
 			return err
 		}
@@ -61,27 +75,15 @@ func FollowJournal(ctx context.Context, path string, off int64, fn func(Frame)) 
 	}
 }
 
-// scanFrames reads complete lines from off and returns the offset after the
+// readFrom reads complete lines from off and returns the offset after the
 // last complete one, so a half-written frame is read again next time.
-func scanFrames(f *os.File, off int64, fn func(Frame)) (int64, error) {
-	if _, err := f.Seek(off, io.SeekStart); err != nil {
+func readFrom(path string, off int64, fn func(Frame)) (int64, error) {
+	s, err := openSource(path)
+	if err != nil {
 		return off, err
 	}
-	br := bufio.NewReaderSize(f, 1<<20)
-	for {
-		line, err := br.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return off, nil
-			}
-			return off, err
-		}
-		off += int64(len(line))
-		var fr Frame
-		if json.Unmarshal(line, &fr) == nil {
-			fn(fr)
-		}
-	}
+	defer func() { _ = s.Close() }()
+	return s.scanFramesAt(off, func(fr Frame, _ int64) { fn(fr) })
 }
 
 // Renderer turns journal frames into readable text: agent message chunks
@@ -412,12 +414,7 @@ func clipHead(s string, n int) string {
 // ReadFrom returns the complete frames in path after byte offset off and
 // the offset to read from next.
 func ReadFrom(path string, off int64) ([]Frame, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, off, err
-	}
-	defer func() { _ = f.Close() }()
 	var out []Frame
-	off, err = scanFrames(f, off, func(fr Frame) { out = append(out, fr) })
+	off, err := readFrom(path, off, func(fr Frame) { out = append(out, fr) })
 	return out, off, err
 }
