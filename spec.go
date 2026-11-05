@@ -45,6 +45,9 @@ const (
 	// MethodExportStats (host to controller, notification): conversation
 	// export records dropped and fields truncated since the last report.
 	MethodExportStats = "_jobshop/export_stats"
+	// MethodCgroupStats (host to controller, notification): CgroupStats of
+	// the session cgroup, sent periodically (Spec.Cgroup only).
+	MethodCgroupStats = "_jobshop/cgroup_stats"
 )
 
 // ExportStats is the payload of MethodExportStats.
@@ -133,6 +136,9 @@ type Exit struct {
 	// OOMKill is set when the session cgroup's OOM killer killed a
 	// process (Spec.Cgroup only).
 	OOMKill bool `json:"oom_kill,omitempty"`
+	// Cgroup is the session cgroup's final usage, read just before it was
+	// removed (Spec.Cgroup only).
+	Cgroup *CgroupStats `json:"cgroup,omitempty"`
 }
 
 // WriteSpec stores spec in dir.
