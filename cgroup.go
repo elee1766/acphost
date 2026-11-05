@@ -22,6 +22,11 @@ type Cgroup struct {
 	// MemoryMax and MemoryHigh are a byte count or "max".
 	MemoryMax  string `json:"memory_max,omitempty"`
 	MemoryHigh string `json:"memory_high,omitempty"`
+	// SwapMax is written to memory.swap.max: a byte count or "max". Unset
+	// keeps the kernel default (no swap limit), so on a host with swap an
+	// agent at MemoryMax swaps instead of being OOM killed. Set "0" to make
+	// MemoryMax a hard cap.
+	SwapMax string `json:"swap_max,omitempty"`
 	// PidsMax is written to pids.max when positive.
 	PidsMax int64 `json:"pids_max,omitempty"`
 }
@@ -39,6 +44,9 @@ func (c Cgroup) limits() []cgroupLimit {
 	}
 	if c.MemoryHigh != "" {
 		l = append(l, cgroupLimit{"memory", "memory.high", c.MemoryHigh})
+	}
+	if c.SwapMax != "" {
+		l = append(l, cgroupLimit{"memory", "memory.swap.max", c.SwapMax})
 	}
 	if c.PidsMax > 0 {
 		l = append(l, cgroupLimit{"pids", "pids.max", strconv.FormatInt(c.PidsMax, 10)})
@@ -65,6 +73,9 @@ func checkCgroup(c Cgroup) error {
 	}
 	if c.MemoryHigh != "" && !validBytes(c.MemoryHigh) {
 		return Permanentf("cgroup memory_high %q: want a byte count or max", c.MemoryHigh)
+	}
+	if c.SwapMax != "" && !validBytes(c.SwapMax) {
+		return Permanentf("cgroup swap_max %q: want a byte count or max", c.SwapMax)
 	}
 	if c.PidsMax < 0 {
 		return Permanentf("cgroup pids_max %d is negative", c.PidsMax)
