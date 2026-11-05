@@ -30,6 +30,7 @@ type options struct {
 	exporter   ExporterFactory
 	redactor   Redactor
 	statsEvery time.Duration // MethodExportStats period; tests shorten it
+	killGrace  time.Duration // SIGTERM to SIGKILL on stop; tests shorten it
 }
 
 // WithExporter sets the conversation export factory. Nil means no export.

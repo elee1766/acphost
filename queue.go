@@ -17,10 +17,12 @@ import (
 // controller catches up. Responses, agent requests and host messages are
 // never dropped; they are bounded by in-flight controller calls and by
 // maxAgentReqs.
-const (
-	queueBytes   = 8 << 20
-	queueFrames  = 4096
-	maxAgentReqs = 256
+const maxAgentReqs = 256
+
+// Queue bounds. Variables so tests can overflow them with little data.
+var (
+	queueBytes  = 8 << 20
+	queueFrames = 4096
 )
 
 // outItem is one line waiting for the controller.

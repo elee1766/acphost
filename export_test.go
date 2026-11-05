@@ -51,7 +51,7 @@ func TestExporter(t *testing.T) {
 	agent := filepath.Join(dir, "agent")
 	// The agent sends one notification, waits for one controller line,
 	// then lingers long enough for a stats report.
-	script := "#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"method\":\"hi\"}'\nread l\nsleep 1\n"
+	script := "#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"method\":\"hi\"}'\nread l\nsleep 0.3\n"
 	require.NoError(t, os.WriteFile(agent, []byte(script), 0o700))
 	require.NoError(t, WriteSpec(dir, Spec{Protocol: Protocol, Session: "s1", Command: agent, Dir: dir, GCRootDir: dir}))
 

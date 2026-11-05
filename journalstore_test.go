@@ -29,6 +29,13 @@ func writeJournal(t testing.TB, dir string, n, bigEvery int) string {
 	return p
 }
 
+// setMaxBlock lowers maxBlock for one test.
+func setMaxBlock(t *testing.T, n int) {
+	old := maxBlock
+	maxBlock = n
+	t.Cleanup(func() { maxBlock = old })
+}
+
 type readCase struct {
 	name  string
 	since int64
@@ -63,6 +70,11 @@ func TestCompressRoundTrip(t *testing.T) {
 		level       int
 	}{{"small", 13, 0, 0}, {"blocks", 1000, 0, 19}, {"bigframes", 600, 200, 1}} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.bigEvery > 0 {
+				// Frames over maxBlock with a small block cap: same
+				// paths, a few KB instead of 12 MB under -race.
+				setMaxBlock(t, 4<<10)
+			}
 			plainDir, dir := t.TempDir(), t.TempDir()
 			pp := writeJournal(t, plainDir, tc.n, tc.bigEvery)
 			p := writeJournal(t, dir, tc.n, tc.bigEvery)
