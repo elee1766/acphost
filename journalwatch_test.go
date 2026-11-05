@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -19,14 +20,14 @@ func followOnce(t *testing.T) time.Duration {
 	path := filepath.Join(t.TempDir(), JournalFile)
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	got := make(chan struct{}, 1)
-	started := make(chan struct{})
+	done := make(chan struct{})
 	go func() {
-		close(started)
+		defer close(done)
 		_ = FollowJournal(ctx, path, 0, func(Frame) { got <- struct{}{} })
 	}()
-	<-started
+	// Wait for the follower to exit before the caller's cleanup resets knobs.
+	defer func() { cancel(); <-done }()
 	time.Sleep(50 * time.Millisecond) // let the first read and watch run
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
@@ -66,9 +67,13 @@ func TestFollowJournalRename(t *testing.T) {
 	path := filepath.Join(dir, JournalFile)
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	got := make(chan int64, 1)
-	go func() { _ = FollowJournal(ctx, path, 0, func(f Frame) { got <- f.Seq }) }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = FollowJournal(ctx, path, 0, func(f Frame) { got <- f.Seq })
+	}()
+	defer func() { cancel(); <-done }()
 	time.Sleep(50 * time.Millisecond)
 	tmp := filepath.Join(dir, "tmp")
 	require.NoError(t, os.WriteFile(tmp, []byte(`{"seq":7,"msg":{}}`+"\n"), 0o600))
@@ -89,6 +94,7 @@ func BenchmarkFollowIdle(b *testing.B) {
 		b.Run(mode, func(b *testing.B) {
 			followInotify = mode == "inotify"
 			defer func() { followInotify = true }()
+			var wg sync.WaitGroup
 			for range b.N {
 				dir := b.TempDir()
 				ctx, cancel := context.WithCancel(context.Background())
@@ -99,7 +105,7 @@ func BenchmarkFollowIdle(b *testing.B) {
 					_ = os.MkdirAll(filepath.Dir(p), 0o700)
 					_ = os.WriteFile(p, nil, 0o600)
 					paths = append(paths, p)
-					go func() { _ = FollowJournal(ctx, p, 0, func(Frame) { got <- struct{}{} }) }()
+					wg.Go(func() { _ = FollowJournal(ctx, p, 0, func(Frame) { got <- struct{}{} }) })
 				}
 				time.Sleep(100 * time.Millisecond)
 				r0 := cpu()
@@ -110,6 +116,7 @@ func BenchmarkFollowIdle(b *testing.B) {
 				<-got
 				lat := time.Since(t0)
 				cancel()
+				wg.Wait()
 				b.ReportMetric(float64(idle.Microseconds()), "cpu-us/s")
 				b.ReportMetric(float64(lat.Microseconds()), "latency-us")
 			}

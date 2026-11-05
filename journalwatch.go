@@ -67,12 +67,14 @@ func (w *dirWatch) Close() { _ = w.f.Close() }
 // grown, and a stop func. It falls back to the plain poll if inotify
 // cannot be set up.
 func followWaiter(path string) (wait func() <-chan time.Time, wake <-chan struct{}, stop func()) {
+	// Read the knobs once, so a follower never races a test changing them.
+	safety, fallback := followSafetyPoll, followFallback
 	if followInotify {
 		if w, err := newDirWatch(filepath.Dir(path)); err == nil {
-			return func() <-chan time.Time { return time.After(followSafetyPoll) }, w.wake, w.Close
+			return func() <-chan time.Time { return time.After(safety) }, w.wake, w.Close
 		}
 	}
-	return func() <-chan time.Time { return time.After(followFallback) }, nil, func() {}
+	return func() <-chan time.Time { return time.After(fallback) }, nil, func() {}
 }
 
 // FollowJournal calls fn for each frame appended to path after byte offset
