@@ -26,10 +26,12 @@ to run agent sessions that survive controller restarts.
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost@v0.2.0
+go get github.com/elee1766/acphost@v0.3.0
 ```
 
-## Usage
+## Quick start
+
+This needs none of the isolation features described below.
 
 The runnable version is `Example` in `example_test.go`.
 
@@ -86,9 +88,9 @@ spec.Sandbox = &acphost.Sandbox{
   outside RW as a permanent error. `SandboxArgs` returns the argv
   without running it.
 
-### Network
+## pasta network
 
-`Network` is `host` (default, the host's network), `none` (no network,
+`Sandbox.Network` is `host` (default, the host's network), `none` (no network,
 `--unshare-net`) or `pasta`. With `pasta` the agent gets a private
 network namespace with user-mode networking from
 [passt](https://passt.top), and `Deny` lists CIDRs it cannot reach:
@@ -108,6 +110,9 @@ spec.Sandbox.Deny = []string{"10.0.0.0/8", "169.254.169.254/32", "fd00::/8"}
   missing `pasta` (`Sandbox.Pasta` or PATH) or `nft` as a permanent
   error.
 
+One-time setup (root): install the `passt` package (provides `pasta`),
+`nftables` (provides `nft`) and `bubblewrap`.
+
 ## User namespace
 
 Set `Spec.User` to run the agent as another uid/gid inside a user
@@ -119,10 +124,14 @@ the host user.
 spec.User = &acphost.User{UID: 1000, GID: 1000, MapUID: 100000, MapGID: 2000, Groups: []int{2000}}
 ```
 
-One-time setup: `newuidmap` and `newgidmap` (package `uidmap` or
-`shadow`) on PATH, and an entry for the host user in `/etc/subuid` and
-`/etc/subgid`, for example `jobshop:100000:65536`. Mapping to the host
-user's own uid and a gid it holds needs no entry.
+One-time setup (root):
+
+- `newuidmap` and `newgidmap` on PATH (package `uidmap` on Debian,
+  `shadow` elsewhere).
+- An entry for the host user in `/etc/subuid` and `/etc/subgid` covering
+  `MapUID` and `MapGID`, for example `jobshop:100000:65536` in both
+  (`usermod --add-subuids 100000-165535 --add-subgids 100000-165535 jobshop`).
+  Mapping to the host user's own uid and a gid it holds needs no entry.
 
 Sharing a worktree between the host user and the agent: make a group
 both belong to (the host user holds it, the agent gets it via `Groups`
@@ -133,6 +142,84 @@ also needs `core.sharedRepository=group`.
 
 With `Spec.Sandbox` too, bwrap runs inside the namespace and nests its
 own. Map failures are permanent errors carrying the helper's stderr.
+
+## Cgroup
+
+Set `Spec.Cgroup` to give the agent its own cgroup v2,
+`<Parent>/<Session>`, with limits. Nil touches no cgroupfs.
+
+```go
+spec.Cgroup = &acphost.Cgroup{
+	Parent:    "/sys/fs/cgroup/acphost",
+	CPUMax:    "200000 100000", // cpu.max: 2 CPUs
+	MemoryMax: "4294967296",    // memory.max: bytes or "max"
+	SwapMax:   "0",             // memory.swap.max: make MemoryMax a hard cap
+	PidsMax:   512,             // pids.max
+}
+```
+
+JSON keys: `parent`, `cpu_max`, `memory_max`, `memory_high`, `swap_max`,
+`pids_max`. Unset limits are not written.
+
+- The agent starts in the cgroup. On stop the host writes `cgroup.kill`
+  (Linux 5.14+), so processes that left the agent's process group die
+  too, then removes the cgroup.
+- `exit.json` has `"oom_kill": true` when the cgroup's OOM killer fired.
+- `CheckSpawn` reports a relative or missing `Parent`, a bad value, or a
+  limit whose controller is not in `Parent/cgroup.subtree_control` as a
+  permanent error.
+
+To turn cgroups on only when they work, call `acphost.DelegatedCgroup()`.
+It returns the host's own cgroup (`Path`), whether the host may create
+children in it (`Writable`) and its `Controllers`. A cgroup that holds
+processes cannot enable controllers for children, so use a child of it
+as `Parent`. Leave `Spec.Cgroup` nil when `Writable` is false or a needed
+controller is missing.
+
+One-time setup (root): the host user needs a delegated subtree.
+
+- With systemd, set `Delegate=yes` on the unit that runs the host (a
+  system service with `User=`, a user service, or
+  `systemd-run --user --scope -p Delegate=yes <cmd>`). User managers
+  delegate only `memory pids` by default. To add `cpu`, create
+  `/etc/systemd/system/user@.service.d/delegate.conf` with
+  `[Service]` and `Delegate=cpu cpuset io memory pids`. Inside the
+  delegated cgroup `$CG`, move the host into a leaf and enable
+  controllers for a sibling used as `Parent`:
+
+  ```sh
+  mkdir $CG/host $CG/agents
+  echo $$ > $CG/host/cgroup.procs
+  echo "+cpu +memory +pids" > $CG/cgroup.subtree_control
+  echo "+cpu +memory +pids" > $CG/agents/cgroup.subtree_control
+  ```
+
+- Without systemd, at boot:
+
+  ```sh
+  echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control
+  mkdir /sys/fs/cgroup/acphost
+  echo "+cpu +memory +pids" > /sys/fs/cgroup/acphost/cgroup.subtree_control
+  chown -R jobshop: /sys/fs/cgroup/acphost
+  ```
+
+  and use `/sys/fs/cgroup/acphost` as `Parent`.
+
+## Release notes
+
+v0.3.0 (2026-11-05): optional isolation for the agent. `Protocol` stays
+1. All new spec fields are optional, and leaving them unset keeps the
+v0.2.0 behavior.
+
+- `Sandbox.Network = "pasta"` with `Sandbox.Deny` CIDRs (#33).
+- `Spec.User` runs the agent as another uid/gid in a user namespace
+  (#29, #32).
+- `Spec.Cgroup` with `CPUMax`, `MemoryMax`, `MemoryHigh`, `SwapMax` and
+  `PidsMax`, `cgroup.kill` on stop, `oom_kill` in `exit.json`, and
+  `DelegatedCgroup()` (#27, #28, #41).
+
+Earlier releases: `docs/notes/9-release-v0.1.0.md`,
+`docs/notes/16-release-v0.2.0.md`.
 
 ## Develop
 
