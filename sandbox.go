@@ -276,6 +276,9 @@ func resolvConfDst(path string) string {
 	return path
 }
 
+// nftBinary is the command spawn and Preflight both resolve on PATH for Deny.
+const nftBinary = "nft"
+
 // pastaPrefix returns the argv that runs bwrap under pasta. pasta creates
 // the network namespace, configures it, and only then starts its command,
 // so the agent never sees a namespace without its interface or rules.
@@ -311,7 +314,7 @@ func pastaPrefix(s Sandbox) ([]string, []string, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("sandbox: %w", err)
 	}
-	nft, err := lookPath("nft")
+	nft, err := lookPath(nftBinary)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sandbox: deny: %w", err)
 	}
