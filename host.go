@@ -181,7 +181,10 @@ func (h *Host) run() error {
 		h.off = st.Size()
 	}
 
-	sockPath := filepath.Join(h.dir, ACPSocket)
+	if err := CheckSocketPath(h.dir); err != nil {
+		return err
+	}
+	sockPath := SocketPath(h.dir)
 	_ = os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {

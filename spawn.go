@@ -38,7 +38,21 @@ func Permanent(err error) bool {
 // host that exits at once: the working directory (unless it is created
 // later, as a worktree is) and the agent command, resolved with the PATH
 // in env when set.
-func CheckSpawn(s Spec, dirCreated bool) error {
+// With WithHostDir it also checks the socket path length. The session
+// name must be one path element short enough for the GC root link.
+func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
+	var c spawnCheck
+	for _, o := range opts {
+		o(&c)
+	}
+	if err := checkSession(s); err != nil {
+		return err
+	}
+	if c.hostDir != "" {
+		if err := CheckSocketPath(c.hostDir); err != nil {
+			return err
+		}
+	}
 	if s.Cgroup != nil {
 		if err := checkCgroup(*s.Cgroup); err != nil {
 			return err
