@@ -148,6 +148,29 @@ func TestCgroupExitCodeAndRemove(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(parent, "s1"))
 }
 
+// TestCgroupAgentInSessionCgroup checks the agent pid lands in
+// <parent>/<session> with the limits written before it runs (#80).
+func TestCgroupAgentInSessionCgroup(t *testing.T) {
+	parent := needCgroup(t)
+	dir := t.TempDir()
+	s := cgroupSpec(t, dir, parent,
+		"cat /proc/self/cgroup >\"$0.cg\"\nd=/sys/fs/cgroup$(sed -n 's/^0:://p' /proc/self/cgroup)\ncat \"$d/pids.max\" >\"$0.pids\"\n", Cgroup{PidsMax: 37})
+	require.NoError(t, WriteSpec(dir, s))
+	require.NoError(t, Main(dir))
+	cg, err := os.ReadFile(filepath.Join(dir, "agent.cg"))
+	require.NoError(t, err)
+	var path string
+	for _, l := range strings.Split(string(cg), "\n") {
+		if p, ok := strings.CutPrefix(l, "0::"); ok {
+			path = p
+		}
+	}
+	assert.Equal(t, filepath.Join(parent, "s1"), filepath.Join("/sys/fs/cgroup", path))
+	pids, err := os.ReadFile(filepath.Join(dir, "agent.pids"))
+	require.NoError(t, err)
+	assert.Equal(t, "37", strings.TrimSpace(string(pids)))
+}
+
 func TestCgroupOOM(t *testing.T) {
 	parent := needCgroup(t)
 	// With swap the agent pages out at memory.max instead of being OOM
