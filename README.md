@@ -1,8 +1,16 @@
 # acphost
 
-Go library for running an [ACP](https://agentclientprotocol.com) agent
-(for example `jcode acp`, `claude-code-acp`, `gemini --experimental-acp`)
-in a detached host process that outlives its client.
+[![ci](https://github.com/elee1766/acphost/actions/workflows/ci.yml/badge.svg)](https://github.com/elee1766/acphost/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/elee1766/acphost.svg)](https://pkg.go.dev/github.com/elee1766/acphost)
+[![Go Report Card](https://goreportcard.com/badge/github.com/elee1766/acphost)](https://goreportcard.com/report/github.com/elee1766/acphost)
+[![Release](https://img.shields.io/github/v/release/elee1766/acphost?sort=semver)](https://github.com/elee1766/acphost/releases)
+
+acphost is a Go library for the [Agent Client Protocol
+(ACP)](https://agentclientprotocol.com). It runs a coding agent such as
+jcode (`jcode acp`), Claude Code (via `claude-code-acp`) or Gemini CLI
+(`gemini --experimental-acp`) in a detached host process, so the agent
+session survives client restarts: a client that reconnects replays what
+it missed from a journal.
 
 One host process per session:
 
@@ -26,37 +34,65 @@ to run agent sessions that survive controller restarts.
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost@v0.6.0
+go get github.com/elee1766/acphost
 ```
 
 Upgrading from v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
 
 ## Quick start
 
-This needs none of the isolation features described below.
-
-The runnable version is `Example` in `example_test.go`.
+This needs none of the isolation features described below. It starts a
+host, connects, and later reconnects asking for replay from a seq. The
+same code, with error handling and output checks, is `Example` in
+`example_test.go`, which `go test` runs and pkg.go.dev shows.
 
 ```go
-// Client: write the spec into the session directory.
-acphost.WriteSpec(dir, acphost.Spec{
-	Protocol: acphost.Protocol, Session: "demo",
-	Command: "claude-code-acp", Dir: workDir, LeaseMS: 600_000,
-})
+package main
 
-// Start the host detached: your binary, a subcommand whose body is
-//     acphost.Main(dir)
-// started with Setsid so it outlives the client.
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"path/filepath"
 
-// Connect. The welcome has the last journal seq and the cached
-// initialize result. Then speak ACP on nc.
-nc, rd, welcome, err := acphost.Connect(ctx, dir)
+	"github.com/elee1766/acphost"
+)
 
-// After a client restart: send Hello{Since: &seq} instead to get the
-// agent notifications journaled after seq replayed before live traffic.
-// acphost.ReadJournal reads the journal directly.
+func main() {
+	dir := "/tmp/acphost-demo" // session directory
 
-// Stop the host: send the MethodStop notification on the socket.
+	// 1. Write the spec.
+	_ = acphost.WriteSpec(dir, acphost.Spec{
+		Protocol: acphost.Protocol, Session: "demo",
+		Command: "claude-code-acp", Dir: "/path/to/work", LeaseMS: 600_000,
+	})
+
+	// 2. Start the host. A real client runs its own binary detached
+	// (Setsid), with a subcommand whose body is acphost.Main(dir).
+	go func() { _ = acphost.Main(dir) }()
+
+	// 3. Connect (retry until acp.sock exists). The welcome has the last
+	// journal seq and the cached initialize result. Speak ACP on nc.
+	nc, _, w, err := acphost.Connect(context.Background(), dir)
+	if err != nil {
+		panic(err)
+	}
+	_ = nc.Close()
+
+	// 4. After a client restart, reconnect and ask for the agent
+	// notifications journaled after a seq, replayed before live traffic.
+	nc, _ = net.Dial("unix", filepath.Join(dir, acphost.ACPSocket))
+	since := w.Seq
+	hello, _ := json.Marshal(acphost.Hello{Protocol: acphost.Protocol, Since: &since})
+	_, _ = nc.Write(append(hello, '\n'))
+	line, _ := bufio.NewReader(nc).ReadBytes('\n') // welcome, then replay
+	fmt.Printf("%s", line)
+
+	// 5. Stop the host.
+	_, _ = nc.Write([]byte(`{"jsonrpc":"2.0","method":"` + acphost.MethodStop + `"}` + "\n"))
+}
 ```
 
 ## Sandbox
