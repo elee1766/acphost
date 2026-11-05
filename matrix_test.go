@@ -208,9 +208,11 @@ func checkIsolation(t *testing.T, f features, dir string, s Spec) {
 		assert.Equal(t, s.Sandbox.Pasta, iso.Bwrap[0])
 		assert.Contains(t, iso.Bwrap, s.Sandbox.Bwrap)
 		assert.Equal(t, s.Command, iso.Bwrap[len(iso.Bwrap)-1])
+		assert.Equal(t, []string{"/proc/self/exe"}, iso.PdeathHelper, "pdeath helper recorded before pasta")
 	} else {
 		assert.Nil(t, iso.Network)
 		assert.Nil(t, iso.Bwrap)
+		assert.Nil(t, iso.PdeathHelper)
 	}
 }
 

@@ -324,6 +324,8 @@ func (h *Host) startAgent() (io.Reader, error) {
 		iso.Bwrap, iso.Network = argv, net
 		if net != nil && net.Mode == "pasta" {
 			argv, pdeathEnv = pdeathCommand(argv)
+			n := len(argv) - len(iso.Bwrap)
+			iso.PdeathHelper = argv[:n:n] // the helper prefix, then pasta and bwrap
 		}
 		// bwrap does the chdir (Dir is a path inside the sandbox).
 		cmd = exec.Command(argv[0], argv[1:]...)
