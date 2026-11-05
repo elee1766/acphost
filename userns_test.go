@@ -63,7 +63,7 @@ func TestUserMaps(t *testing.T) {
 				su, sg = subuid, subgid
 			}
 			for range 3 { // deterministic across runs
-				u, g, err := userMaps(tt.u, 1000, su, sg)
+				u, g, err := userMaps(tt.u, 1000, "subuid", "subgid", su, sg)
 				if tt.wantErr {
 					var pe *PermanentError
 					if !errors.As(err, &pe) {
@@ -80,6 +80,38 @@ func TestUserMaps(t *testing.T) {
 				if s := strings.Join(g, " "); s != tt.gid {
 					t.Fatalf("gid args %q want %q", s, tt.gid)
 				}
+			}
+		})
+	}
+}
+
+func TestUserMapsSpan(t *testing.T) {
+	sub := []Range{{100000, 1000}, {101000, 1000}}
+	tests := []struct {
+		name             string
+		mapUID, mapGID   int
+		count            int
+		wantErr, inError string
+	}{
+		{name: "inside one", mapUID: 100000, mapGID: 101000, count: 1000},
+		{name: "count one ignores span", mapUID: 100999, mapGID: 100999, count: 1},
+		{name: "spans adjacent", mapUID: 100500, mapGID: 100000, count: 1000, wantErr: "uids 100500..101499", inError: "subuid"},
+		{name: "partly outside", mapUID: 101500, mapGID: 100000, count: 1000, wantErr: "uids 101500..102499", inError: "101000..101999"},
+		{name: "gid only", mapUID: 100000, mapGID: 100900, count: 200, wantErr: "gids 100900..101099", inError: "subgid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := User{MapUID: tt.mapUID, MapGID: tt.mapGID, MapCount: tt.count}
+			_, _, err := userMaps(u, 1000, "subuid", "subgid", sub, sub)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var pe *PermanentError
+			if !errors.As(err, &pe) || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), tt.inError) {
+				t.Fatalf("want PermanentError with %q and %q, got %v", tt.wantErr, tt.inError, err)
 			}
 		})
 	}

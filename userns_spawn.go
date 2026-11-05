@@ -132,7 +132,7 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserAppl
 	if err != nil {
 		return nil, nil, Permanentf("user: %s: %w", subgidPath, err)
 	}
-	uidArgs, gidArgs, err := userMaps(u, self, subuid, subgid)
+	uidArgs, gidArgs, err := userMaps(u, self, subuidPath, subgidPath, subuid, subgid)
 	if err != nil {
 		return nil, nil, err
 	}

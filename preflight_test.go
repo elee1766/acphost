@@ -121,6 +121,9 @@ func TestPreflightMissing(t *testing.T) {
 			_ = os.Remove(filepath.Join(f.env.etc, "subgid"))
 			s.User.MapGID = 987654
 		}},
+		{"subuid span", "user_namespace", "not inside one", func(_ *preflightFixture, s *Spec) {
+			s.User.MapUID, s.User.MapGID, s.User.MapCount = 160000, 100000, 10000
+		}},
 		{"subuid malformed", "user_namespace", "line 1", func(f *preflightFixture, _ *Spec) {
 			write(t, filepath.Join(f.env.etc, "subuid"), "garbage\n")
 		}},

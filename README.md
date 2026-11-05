@@ -197,6 +197,9 @@ spec.User = &u
 ```
 
 `uids` and `gids` come from `ParseSubIDs`. Use one `size` per lockDir.
+`a.User` sets `MapCount` to the block size, and spawn, `CheckSpawn` and
+`Preflight` then reject a block not inside one subuid/subgid entry, so
+callers can drop their own range check (`docs/notes/113-subid-range.md`).
 Details in `docs/notes/57-subid-alloc.md`.
 
 ## Cgroup

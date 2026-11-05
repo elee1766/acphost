@@ -19,9 +19,10 @@ type Alloc struct {
 }
 
 // User returns a User that runs as uid:gid inside and maps to the first
-// id of the block outside.
+// id of the block outside. MapCount is the block size, so spawn checks
+// the whole block lies in one subid entry.
 func (a *Alloc) User(uid, gid int) User {
-	return User{UID: uid, GID: gid, MapUID: a.UID, MapGID: a.GID}
+	return User{UID: uid, GID: gid, MapUID: a.UID, MapGID: a.GID, MapCount: a.Size}
 }
 
 // Release frees the block. The lock file stays, so a later allocation
