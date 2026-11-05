@@ -355,6 +355,28 @@ if err == nil && ok && iso.Cgroup != nil {
 
 Unused parts are omitted. A host with no isolation writes `{}`.
 
+## Spawn failures
+
+When the agent never runs (missing command, cgroup setup, newuidmap or
+the userns helper, pasta, the deny rules, or a bwrap argument or mount
+bwrap rejects), the host writes `exit.json` with `Exit.Reason` set to
+`acphost.ReasonSpawnFailed` (`"spawn failed"`) and the setup error in
+`Exit.Error` (`"error"`), then exits. `Main` returns a
+`*acphost.SpawnError`, and so does `Connect` once that host is gone, so a
+client polling for the socket stops at once:
+
+```go
+nc, rd, w, err := acphost.Connect(ctx, dir)
+var se *acphost.SpawnError
+if errors.As(err, &se) {
+	return fmt.Errorf("session %s: %w", name, err) // do not retry
+}
+```
+
+Sandboxed hosts tell a bwrap failure from an agent exit by bwrap's
+`--json-status-fd` lines on stderr. Details in
+`docs/notes/100-spawn-failure.md`.
+
 ## Journal redaction
 
 `WithRedactor` rewrites each frame's message before the host writes it
