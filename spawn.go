@@ -63,6 +63,11 @@ func CheckSpawn(s Spec, dirCreated bool) error {
 				return &PermanentError{Err: fmt.Errorf("sandbox bwrap %q: %w", s.Sandbox.Bwrap, err)}
 			}
 		}
+		if s.Sandbox.Network == "pasta" && s.Sandbox.Pasta != "" {
+			if err := lookCommand(s.Sandbox.Pasta, nil); err != nil {
+				return &PermanentError{Err: fmt.Errorf("sandbox pasta %q: %w", s.Sandbox.Pasta, err)}
+			}
+		}
 		if _, err := SandboxArgs(*s.Sandbox, s.Command, s.Args, s.Dir); err != nil {
 			return &PermanentError{Err: err}
 		}

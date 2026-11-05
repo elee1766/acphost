@@ -23,7 +23,7 @@ jobs:
       - name: bubblewrap
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap
+          sudo apt-get install -y -q bubblewrap passt nftables
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: go test -race -v -run TestSandbox ./... 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL|PASS)'
       - run: go test -race ./...

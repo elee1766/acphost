@@ -86,6 +86,28 @@ spec.Sandbox = &acphost.Sandbox{
   outside RW as a permanent error. `SandboxArgs` returns the argv
   without running it.
 
+### Network
+
+`Network` is `host` (default, the host's network), `none` (no network,
+`--unshare-net`) or `pasta`. With `pasta` the agent gets a private
+network namespace with user-mode networking from
+[passt](https://passt.top), and `Deny` lists CIDRs it cannot reach:
+
+```go
+spec.Sandbox.Network = "pasta"
+spec.Sandbox.Deny = []string{"10.0.0.0/8", "169.254.169.254/32", "fd00::/8"}
+```
+
+- bwrap runs under `pasta --config-net`, so the interface and rules are
+  in place before the agent starts, and pasta exits with the agent.
+- Deny is an nftables table loaded inside the namespace (needs `nft` on
+  PATH). Denied connects are rejected. The agent runs with
+  `--cap-drop ALL`, so it cannot remove the rules.
+- No inbound ports are forwarded.
+- `Deny` with another network is an error. `CheckSpawn` reports a
+  missing `pasta` (`Sandbox.Pasta` or PATH) or `nft` as a permanent
+  error.
+
 ## Develop
 
 ```
@@ -94,4 +116,4 @@ golangci-lint run ./...   # v2.15.0, config in .golangci.yml
 ```
 
 The sandbox integration tests skip unless `bwrap` is on PATH and user
-namespaces work.
+namespaces work. The pasta test also needs `pasta`, `nft` and `bash`.
