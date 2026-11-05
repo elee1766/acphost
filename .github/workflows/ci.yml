@@ -10,8 +10,7 @@ permissions:
 
 jobs:
   go:
-    # Pinned: on ubuntu-26.04 the pasta pdeathsig tests fail (#76, #77).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

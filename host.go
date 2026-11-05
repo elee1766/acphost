@@ -282,18 +282,26 @@ func (h *Host) startAgent() (io.Reader, error) {
 	// iso records what this function applies, from the code that applies
 	// it. Written once the agent has started.
 	var iso Isolation
+	// pdeathEnv selects the pdeath helper for pasta (see pdeathChildEnv).
+	var pdeathEnv string
 	if h.spec.Sandbox != nil {
 		argv, net, err := sandboxArgs(sandboxWithEnv(*h.spec.Sandbox, h.spec.Env), h.spec.Command, h.spec.Args, h.spec.Dir)
 		if err != nil {
 			return nil, err
 		}
 		iso.Bwrap, iso.Network = argv, net
+		if net != nil && net.Mode == "pasta" {
+			argv, pdeathEnv = pdeathCommand(argv)
+		}
 		// bwrap does the chdir (Dir is a path inside the sandbox).
 		cmd = exec.Command(argv[0], argv[1:]...)
 	} else {
 		cmd.Dir = h.spec.Dir
 	}
 	cmd.Env = append(os.Environ(), h.spec.Env...)
+	if pdeathEnv != "" {
+		cmd.Env = append(cmd.Env, pdeathEnv)
+	}
 	cmd.Stderr = os.Stderr // host.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	if h.spec.Cgroup != nil {
