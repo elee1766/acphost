@@ -411,6 +411,13 @@ func (h *Host) leaseLoop() {
 // record appends a frame to the journal. Holding h.mu.
 func (h *Host) record(from string, line []byte) {
 	h.seq++
+	if r := h.opts.redactor; r != nil {
+		line = r(from, line)
+		if !json.Valid(line) {
+			h.log.Warn("redactor returned invalid JSON, journaling null", "seq", h.seq, "from", from)
+			line = []byte("null")
+		}
+	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, `{"seq":%d,"t":%d,"from":%q,"msg":`, h.seq, time.Now().UnixMilli(), from)
 	b.Write(line)
