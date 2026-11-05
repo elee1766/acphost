@@ -232,6 +232,50 @@ func TestTailNoIndex(t *testing.T) {
 	assert.Zero(t, seq)
 }
 
+func TestJournalTailCases(t *testing.T) {
+	line := func(seq int, text string) string {
+		return fmt.Sprintf(`{"seq":%d,"t":%d,"from":"agent","msg":{"text":%q}}`+"\n", seq, 1000+seq, text)
+	}
+	big := strings.Repeat("z", 200<<10)
+	cases := []struct {
+		name    string
+		body    string
+		wantSeq int64
+	}{
+		{"empty", "", 0},
+		{"single", line(1, "a"), 1},
+		{"big-last", line(1, "a") + line(2, "b") + line(3, big), 3},
+		{"only-big", line(7, big), 7},
+		{"partial", line(1, "a") + line(2, "b") + `{"seq":3,"t":`, 2},
+		{"partial-big", line(1, "a") + line(2, big) + `{"seq":3,"t":` + big, 2},
+	}
+	for _, c := range cases {
+		for _, compressed := range []bool{false, true} {
+			t.Run(fmt.Sprint(c.name, "/compressed=", compressed), func(t *testing.T) {
+				setMaxBlock(t, 1000)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, JournalFile), []byte(c.body), 0o600))
+				if compressed {
+					require.NoError(t, CompressJournal(dir, 3))
+					// The seek table alone answers: drop the index.
+					require.NoError(t, os.Remove(filepath.Join(dir, IndexFile)))
+				}
+				seq, tm := JournalTail(dir)
+				assert.Equal(t, c.wantSeq, seq)
+				if c.wantSeq > 0 {
+					assert.Equal(t, time.UnixMilli(1000+c.wantSeq), tm)
+				} else {
+					assert.True(t, tm.IsZero())
+				}
+				if !compressed {
+					_, err := os.Stat(filepath.Join(dir, IndexFile))
+					assert.ErrorIs(t, err, os.ErrNotExist)
+				}
+			})
+		}
+	}
+}
+
 func TestHostRefusesCompressed(t *testing.T) {
 	dir := t.TempDir()
 	writeJournal(t, dir, 3, 0)
@@ -240,15 +284,15 @@ func TestHostRefusesCompressed(t *testing.T) {
 	assert.ErrorIs(t, Main(dir), ErrJournalCompressed)
 }
 
-// BenchmarkJournalTail: with the index, the tail of a ~36 MB compressed
-// journal costs one block, not the file.
+// BenchmarkJournalTail: the tail of a ~100 MB journal costs one 64 KiB
+// read (plain) or one block (compressed), not the file.
 func BenchmarkJournalTail(b *testing.B) {
 	for _, compressed := range []bool{false, true} {
 		b.Run(fmt.Sprint("compressed=", compressed), func(b *testing.B) {
 			dir := b.TempDir()
 			var sb strings.Builder
 			pad := strings.Repeat("y", 300)
-			for i := 1; sb.Len() < 36<<20; i++ {
+			for i := 1; sb.Len() < 100<<20; i++ {
 				fmt.Fprintf(&sb, `{"seq":%d,"t":%d,"from":"agent","msg":{"text":"%s %d"}}`+"\n", i, i, pad, i)
 			}
 			require.NoError(b, os.WriteFile(filepath.Join(dir, JournalFile), []byte(sb.String()), 0o600))
