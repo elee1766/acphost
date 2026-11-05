@@ -360,6 +360,11 @@ line per check with a `fix:` line under each failure, so a runbook can
 print it and stop. Names, hints and the text are in
 `docs/notes/115-preflight-hints.md`.
 
+`acphost.Preflight(spec, acphost.WithDNSCheck("example.com"))` also
+runs `CheckSandboxDNS` as check `sandbox.dns` when the spec uses pasta
+networking and pasta is found. It spawns pasta, so it is opt-in. See
+`docs/notes/136-preflight-dns.md`.
+
 ## Isolation report
 
 Once the agent starts, the host writes `isolation.json` in the session
