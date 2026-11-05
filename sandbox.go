@@ -237,7 +237,7 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	}
 	// After all binds, so a bind of /etc does not cover it.
 	if s.ResolvConf != "" {
-		argv = append(argv, "--ro-bind", s.ResolvConf, "/etc/resolv.conf")
+		argv = append(argv, "--ro-bind", s.ResolvConf, resolvConfDst(etcResolvConf))
 	}
 	// The agent sees only the env it was given, so host secrets do not
 	// leak in by default.
@@ -251,6 +251,29 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	argv = append(argv, s.ExtraArgs...)
 	argv = append(argv, "--", cmd)
 	return append(prefix, append(argv, args...)...), net, nil
+}
+
+// etcResolvConf is the path ResolvConf replaces. A variable for tests.
+var etcResolvConf = "/etc/resolv.conf"
+
+// resolvConfDst returns where to bind ResolvConf so that path reads it
+// inside the sandbox. On systemd-resolved hosts path is a symlink into
+// /run, which the sandbox usually lacks: bwrap cannot create a file
+// through a dangling link, so bind at the link's final target instead
+// (bwrap makes the missing parents on its own root). The sandbox's /etc
+// is assumed to come from the host's, as with an /etc bind.
+func resolvConfDst(path string) string {
+	for range 8 {
+		t, err := os.Readlink(path)
+		if err != nil {
+			return path
+		}
+		if !filepath.IsAbs(t) {
+			t = filepath.Join(filepath.Dir(path), t)
+		}
+		path = filepath.Clean(t)
+	}
+	return path
 }
 
 // pastaPrefix returns the argv that runs bwrap under pasta. pasta creates

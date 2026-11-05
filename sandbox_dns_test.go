@@ -16,6 +16,9 @@ import (
 )
 
 func TestSandboxDNSArgs(t *testing.T) {
+	old := etcResolvConf
+	t.Cleanup(func() { etcResolvConf = old })
+	etcResolvConf = "/nonexistent/resolv.conf" // not a link: bound as is
 	tmp := t.TempDir()
 	conf := filepath.Join(tmp, "resolv.conf")
 	require.NoError(t, os.WriteFile(conf, []byte("nameserver 169.254.1.1\n"), 0o644))
@@ -34,7 +37,7 @@ func TestSandboxDNSArgs(t *testing.T) {
 	assert.Equal(t, want, argv[:len(want)])
 	// The resolv.conf bind comes after the /etc bind so it is not covered.
 	etc := slices.Index(argv, "/etc")
-	rc := slices.Index(argv, "/etc/resolv.conf")
+	rc := slices.Index(argv, "/nonexistent/resolv.conf")
 	require.Positive(t, rc)
 	assert.Equal(t, []string{"--ro-bind", conf}, argv[rc-2:rc])
 	assert.Less(t, etc, rc)
@@ -51,7 +54,23 @@ func TestSandboxDNSArgs(t *testing.T) {
 	argv, _, err = sandboxArgs(s, "agent", nil, tmp)
 	require.NoError(t, err)
 	assert.NotContains(t, argv, "--dns-forward")
-	assert.NotContains(t, argv, "/etc/resolv.conf")
+	assert.NotContains(t, argv, "/nonexistent/resolv.conf")
+}
+
+func TestResolvConfDst(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain")
+	require.NoError(t, os.WriteFile(plain, nil, 0o644))
+	assert.Equal(t, plain, resolvConfDst(plain))
+	assert.Equal(t, filepath.Join(dir, "missing"), resolvConfDst(filepath.Join(dir, "missing")))
+	// /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf, dangling.
+	etc := filepath.Join(dir, "etc")
+	require.NoError(t, os.Mkdir(etc, 0o755))
+	require.NoError(t, os.Symlink("../run/systemd/resolve/stub-resolv.conf", filepath.Join(etc, "resolv.conf")))
+	assert.Equal(t, filepath.Join(dir, "run/systemd/resolve/stub-resolv.conf"), resolvConfDst(filepath.Join(etc, "resolv.conf")))
+	// Two hops, absolute (NixOS: /etc/resolv.conf -> /etc/static/resolv.conf -> ...).
+	require.NoError(t, os.Symlink(filepath.Join(etc, "resolv.conf"), filepath.Join(dir, "hop")))
+	assert.Equal(t, filepath.Join(dir, "run/systemd/resolve/stub-resolv.conf"), resolvConfDst(filepath.Join(dir, "hop")))
 }
 
 func TestSandboxDNSValidation(t *testing.T) {

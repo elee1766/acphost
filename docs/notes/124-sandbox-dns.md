@@ -19,7 +19,10 @@ decision). Unset keeps the old behavior.
   be IP addresses. Only valid with pasta.
 - `Sandbox.ResolvConf` (`resolv_conf: <path>`): a host file bound
   read-only over /etc/resolv.conf, after all other binds so an /etc bind
-  does not cover it. The caller writes it (usually `nameserver <forward>`
+  does not cover it. When the host's /etc/resolv.conf is a symlink (into
+  /run on systemd-resolved hosts, /etc/static on NixOS), the bind goes to
+  the link's final target: bwrap cannot create a file through a dangling
+  link, and the sandbox's /etc is normally the host's. The caller writes it (usually `nameserver <forward>`
   plus its own `search`/`options` lines).
 - The forward address must not fall inside a `Deny` CIDR: the nft rules
   apply to it like any destination, so `SandboxArgs` rejects that spec.
