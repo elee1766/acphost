@@ -98,8 +98,16 @@ func within(p, root string) bool {
 // sources) and the environment (for EnvKeep and PATH); the same inputs
 // give the same output. dir must lie inside an RW mount's destination.
 func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, error) {
+	argv, _, err := sandboxArgs(s, cmd, args, dir)
+	return argv, err
+}
+
+// sandboxArgs is SandboxArgs that also reports the network setup the
+// argv applies, for isolation.json.
+func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *NetworkApplied, error) {
+	fail := func(err error) ([]string, *NetworkApplied, error) { return nil, nil, err }
 	if s.Backend != "" && s.Backend != "bubblewrap" {
-		return nil, fmt.Errorf("sandbox: unknown backend %q", s.Backend)
+		return fail(fmt.Errorf("sandbox: unknown backend %q", s.Backend))
 	}
 	var unshareNet, pasta bool
 	switch s.Network {
@@ -109,23 +117,27 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	case "pasta":
 		pasta = true
 	default:
-		return nil, fmt.Errorf("sandbox: unknown network %q", s.Network)
+		return fail(fmt.Errorf("sandbox: unknown network %q", s.Network))
 	}
 	if len(s.Deny) > 0 && !pasta {
-		return nil, fmt.Errorf("sandbox: deny needs network pasta, not %q", s.Network)
+		return fail(fmt.Errorf("sandbox: deny needs network pasta, not %q", s.Network))
+	}
+	net := &NetworkApplied{Mode: s.Network}
+	if net.Mode == "" {
+		net.Mode = "host"
 	}
 	var prefix []string
 	if pasta {
 		var err error
-		if prefix, err = pastaPrefix(s); err != nil {
-			return nil, err
+		if prefix, net.Deny, err = pastaPrefix(s); err != nil {
+			return fail(err)
 		}
 	}
 	bwrap := s.Bwrap
 	if bwrap == "" {
 		p, err := lookPath("bwrap")
 		if err != nil {
-			return nil, fmt.Errorf("sandbox: %w", err)
+			return fail(fmt.Errorf("sandbox: %w", err))
 		}
 		bwrap = p
 	}
@@ -139,13 +151,13 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 			if errors.Is(err, os.ErrNotExist) && m.SkipMissing {
 				continue
 			}
-			return nil, fmt.Errorf("sandbox: ro %s: %w", m.Src, err)
+			return fail(fmt.Errorf("sandbox: ro %s: %w", m.Src, err))
 		}
 		binds = append(binds, bind{"--ro-bind", m.Src, m.dst()})
 	}
 	for _, m := range s.RW {
 		if _, err := os.Stat(m.Src); err != nil {
-			return nil, fmt.Errorf("sandbox: rw %s: %w", m.Src, err)
+			return fail(fmt.Errorf("sandbox: rw %s: %w", m.Src, err))
 		}
 		binds = append(binds, bind{"--bind", m.Src, m.dst()})
 	}
@@ -167,7 +179,7 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 		}
 	}
 	if !inRW {
-		return nil, fmt.Errorf("sandbox: dir %s is not inside an rw mount", dir)
+		return fail(fmt.Errorf("sandbox: dir %s is not inside an rw mount", dir))
 	}
 
 	argv := []string{
@@ -204,7 +216,7 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	argv = append(argv, "--chdir", cdir)
 	argv = append(argv, s.ExtraArgs...)
 	argv = append(argv, "--", cmd)
-	return append(prefix, append(argv, args...)...), nil
+	return append(prefix, append(argv, args...)...), net, nil
 }
 
 // pastaPrefix returns the argv that runs bwrap under pasta. pasta creates
@@ -212,42 +224,43 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 // so the agent never sees a namespace without its interface or rules.
 // With Deny, a shell loads nftables rules before exec'ing bwrap; exit 125
 // means the rules failed to load.
-func pastaPrefix(s Sandbox) ([]string, error) {
-	deny, err := denyRules(s.Deny)
+// It also returns the normalized deny CIDRs the rules reject.
+func pastaPrefix(s Sandbox) ([]string, []string, error) {
+	deny, cidrs, err := denyRules(s.Deny)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p := s.Pasta
 	if p == "" {
 		if p, err = lookPath("pasta"); err != nil {
-			return nil, fmt.Errorf("sandbox: %w", err)
+			return nil, nil, fmt.Errorf("sandbox: %w", err)
 		}
 	}
 	// Foreground, quiet, and no inbound port forwards: the agent only
 	// makes outbound connections.
 	argv := []string{p, "--config-net", "--foreground", "--quiet", "-t", "none", "-u", "none", "-T", "none", "-U", "none", "--"}
 	if deny == "" {
-		return argv, nil
+		return argv, nil, nil
 	}
 	sh, err := lookPath("sh")
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: %w", err)
+		return nil, nil, fmt.Errorf("sandbox: %w", err)
 	}
 	nft, err := lookPath("nft")
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: deny: %w", err)
+		return nil, nil, fmt.Errorf("sandbox: deny: %w", err)
 	}
-	return append(argv, sh, "-c", `"$1" "$2" || exit 125; shift 2; exec "$@"`, "acphost-net", nft, deny), nil
+	return append(argv, sh, "-c", `"$1" "$2" || exit 125; shift 2; exec "$@"`, "acphost-net", nft, deny), cidrs, nil
 }
 
 // denyRules validates CIDRs and returns an nft ruleset rejecting them on
-// output, or "" for none.
-func denyRules(cidrs []string) (string, error) {
+// output, or "" for none, and the masked CIDRs (v4 then v6).
+func denyRules(cidrs []string) (string, []string, error) {
 	var v4, v6 []string
 	for _, c := range cidrs {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {
-			return "", fmt.Errorf("sandbox: deny %q: %w", c, err)
+			return "", nil, fmt.Errorf("sandbox: deny %q: %w", c, err)
 		}
 		p = p.Masked()
 		if p.Addr().Is4() {
@@ -257,7 +270,7 @@ func denyRules(cidrs []string) (string, error) {
 		}
 	}
 	if len(v4)+len(v6) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 	r := "table inet acphost { chain out { type filter hook output priority 0; policy accept;"
 	if len(v4) > 0 {
@@ -266,5 +279,5 @@ func denyRules(cidrs []string) (string, error) {
 	if len(v6) > 0 {
 		r += " ip6 daddr { " + strings.Join(v6, ", ") + " } reject;"
 	}
-	return r + " }; }", nil
+	return r + " }; }", append(v4, v6...), nil
 }

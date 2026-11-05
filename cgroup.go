@@ -121,26 +121,28 @@ func validBytes(s string) bool {
 }
 
 // prepareCgroup creates <parent>/<session> and writes the set limits. It
-// returns the new cgroup directory. The session name must be a single
+// returns the new cgroup directory and the limits written, in order. The session name must be a single
 // path element so nothing is written outside Parent.
-func prepareCgroup(c Cgroup, session string) (string, error) {
+func prepareCgroup(c Cgroup, session string) (string, []LimitApplied, error) {
 	trace("cgroupfs:prepare")
 	if session == "" || session == "." || session == ".." || strings.ContainsAny(session, "/\x00") {
-		return "", Permanentf("cgroup: bad session name %q", session)
+		return "", nil, Permanentf("cgroup: bad session name %q", session)
 	}
 	dir := filepath.Join(c.Parent, session)
 	if filepath.Dir(dir) != filepath.Clean(c.Parent) {
-		return "", Permanentf("cgroup: %s escapes %s", dir, c.Parent)
+		return "", nil, Permanentf("cgroup: %s escapes %s", dir, c.Parent)
 	}
 	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-		return "", fmt.Errorf("cgroup: %w", err)
+		return "", nil, fmt.Errorf("cgroup: %w", err)
 	}
+	var applied []LimitApplied
 	for _, x := range c.limits() {
 		if err := os.WriteFile(filepath.Join(dir, x.file), []byte(x.value), 0o644); err != nil {
-			return dir, fmt.Errorf("cgroup %s: %w", x.file, err)
+			return dir, applied, fmt.Errorf("cgroup %s: %w", x.file, err)
 		}
+		applied = append(applied, LimitApplied{File: x.file, Value: x.value})
 	}
-	return dir, nil
+	return dir, applied, nil
 }
 
 // removeCgroup removes a cgroup made by prepareCgroup. cgroupfs refuses

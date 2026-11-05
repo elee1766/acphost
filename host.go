@@ -238,11 +238,15 @@ func (h *Host) run() error {
 
 func (h *Host) startAgent() (io.Reader, error) {
 	cmd := exec.Command(h.spec.Command, h.spec.Args...)
+	// iso records what this function applies, from the code that applies
+	// it. Written once the agent has started.
+	var iso Isolation
 	if h.spec.Sandbox != nil {
-		argv, err := SandboxArgs(sandboxWithEnv(*h.spec.Sandbox, h.spec.Env), h.spec.Command, h.spec.Args, h.spec.Dir)
+		argv, net, err := sandboxArgs(sandboxWithEnv(*h.spec.Sandbox, h.spec.Env), h.spec.Command, h.spec.Args, h.spec.Dir)
 		if err != nil {
 			return nil, err
 		}
+		iso.Bwrap, iso.Network = argv, net
 		// bwrap does the chdir (Dir is a path inside the sandbox).
 		cmd = exec.Command(argv[0], argv[1:]...)
 	} else {
@@ -252,13 +256,14 @@ func (h *Host) startAgent() (io.Reader, error) {
 	cmd.Stderr = os.Stderr // host.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	if h.spec.Cgroup != nil {
-		dir, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
+		dir, limits, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
 		if dir != "" {
 			h.cgroup = dir
 		}
 		if err != nil {
 			return nil, err
 		}
+		iso.Cgroup = &CgroupApplied{Dir: dir, Limits: limits}
 		f, err := os.Open(dir)
 		if err != nil {
 			return nil, err
@@ -272,7 +277,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 	start := cmd.Start
 	if h.spec.User != nil {
 		var err error
-		if start, err = usernsCommand(cmd, *h.spec.User); err != nil {
+		if start, iso.User, err = usernsCommand(cmd, *h.spec.User); err != nil {
 			return nil, err
 		}
 	}
@@ -287,6 +292,13 @@ func (h *Host) startAgent() (io.Reader, error) {
 	if err := start(); err != nil {
 		return nil, err
 	}
+	// pasta runs its command only after configuring the namespace, so a
+	// started process here means pasta started; a pasta failure later
+	// shows as the agent's exit.
+	if iso.Network != nil && iso.Network.Mode == "pasta" {
+		iso.Network.PastaStarted = true
+	}
+	h.writeIsolation(iso)
 	h.agent, h.agentIn = cmd, in
 	return out, nil
 }
@@ -315,6 +327,13 @@ func (h *Host) killAll() {
 		return
 	}
 	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
+}
+
+func (h *Host) writeIsolation(iso Isolation) {
+	b, _ := json.Marshal(iso) // fixed struct, cannot fail
+	if err := writeFileAtomic(filepath.Join(h.dir, IsolationFile), b); err != nil {
+		h.log.Error("write isolation", "err", err)
+	}
 }
 
 func (h *Host) writeExit(e Exit) {

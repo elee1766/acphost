@@ -117,20 +117,22 @@ func userFromEnv(s string) *User {
 // re-exec of this binary in a new user namespace. The returned start
 // function starts it, maps the ids with newuidmap/newgidmap and releases
 // it to exec the real command, so the pid the host waits on is the agent.
-func usernsCommand(cmd *exec.Cmd, u User) (start func() error, err error) {
+// It also returns the map lines it will write.
+func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserApplied, err error) {
 	self := os.Geteuid()
 	subuid, err := readSubIDs(subuidPath, self)
 	if err != nil {
-		return nil, Permanentf("user: %s: %w", subuidPath, err)
+		return nil, nil, Permanentf("user: %s: %w", subuidPath, err)
 	}
 	subgid, err := readSubIDs(subgidPath, self)
 	if err != nil {
-		return nil, Permanentf("user: %s: %w", subgidPath, err)
+		return nil, nil, Permanentf("user: %s: %w", subgidPath, err)
 	}
 	uidArgs, gidArgs, err := userMaps(u, self, subuid, subgid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	applied = &UserApplied{UIDMap: mapLines(uidArgs), GIDMap: mapLines(gidArgs)}
 	// /proc/self/exe still works if the binary was replaced on disk.
 	argv := append([]string{"acphost-userns"}, cmd.Args...)
 	cmd.Path, cmd.Args, cmd.Err = "/proc/self/exe", argv, nil
@@ -169,5 +171,5 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, err error) {
 			return fmt.Errorf("user: release agent: %w", err)
 		}
 		return nil
-	}, nil
+	}, applied, nil
 }

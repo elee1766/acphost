@@ -23,6 +23,8 @@ const (
 	ACPSocket   = "acp.sock"       // unix socket clients Connect to
 	JournalFile = "journal.ndjson" // one Frame per line
 	ExitFile    = "exit.json"      // Exit, written when the host stops
+	// IsolationFile holds Isolation, written once the agent has started.
+	IsolationFile = "isolation.json"
 )
 
 // Extension methods between controller and host on acp.sock. Everything
