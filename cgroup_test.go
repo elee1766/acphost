@@ -20,18 +20,18 @@ func fakeCgroup(t *testing.T, controllers string) string {
 
 func TestPrepareCgroupWritesLimits(t *testing.T) {
 	parent := fakeCgroup(t, "cpu memory pids")
-	c := Cgroup{Parent: parent, CPUMax: "50000 100000", MemoryMax: "1073741824", MemoryHigh: "max", PidsMax: 512}
+	c := Cgroup{Parent: parent, CPUMax: "50000 100000", MemoryMax: "1073741824", MemoryHigh: "max", SwapMax: "0", PidsMax: 512}
 	require.NoError(t, checkCgroup(c))
 	dir, err := prepareCgroup(c, "s1")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(parent, "s1"), dir)
-	for file, want := range map[string]string{"cpu.max": "50000 100000", "memory.max": "1073741824", "memory.high": "max", "pids.max": "512"} {
+	for file, want := range map[string]string{"cpu.max": "50000 100000", "memory.max": "1073741824", "memory.high": "max", "memory.swap.max": "0", "pids.max": "512"} {
 		b, err := os.ReadFile(filepath.Join(dir, file))
 		require.NoError(t, err, file)
 		assert.Equal(t, want, string(b), file)
 	}
 	// Real cgroupfs rmdir ignores interface files, a temp dir does not.
-	for _, file := range []string{"cpu.max", "memory.max", "memory.high", "pids.max"} {
+	for _, file := range []string{"cpu.max", "memory.max", "memory.high", "memory.swap.max", "pids.max"} {
 		require.NoError(t, os.Remove(filepath.Join(dir, file)))
 	}
 	require.NoError(t, removeCgroup(dir))
@@ -57,6 +57,7 @@ func TestCheckCgroupErrors(t *testing.T) {
 		"bad cpu":        {Parent: parent, CPUMax: "50000"},
 		"zero period":    {Parent: parent, CPUMax: "max 0"},
 		"bad memory":     {Parent: parent, MemoryMax: "1G"},
+		"bad swap":       {Parent: parent, SwapMax: "-1"},
 		"negative pids":  {Parent: parent, PidsMax: -1},
 	}
 	for name, c := range cases {
@@ -69,6 +70,10 @@ func TestCheckCgroupErrors(t *testing.T) {
 	err := checkCgroup(Cgroup{Parent: parent, MemoryMax: "max"})
 	require.Error(t, err)
 	assert.True(t, Permanent(err))
+	assert.Contains(t, err.Error(), `"memory"`)
+
+	err = checkCgroup(Cgroup{Parent: parent, SwapMax: "0"})
+	require.Error(t, err, "swap_max needs the memory controller")
 	assert.Contains(t, err.Error(), `"memory"`)
 
 	err = CheckSpawn(Spec{Dir: t.TempDir(), Command: "x", Cgroup: &Cgroup{Parent: parent, PidsMax: 1}}, false)
