@@ -3,7 +3,6 @@ package acphost
 import (
 	"encoding/json"
 	"net"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,9 @@ import (
 )
 
 func TestSandboxDNSArgs(t *testing.T) {
+	old := etcResolvConf
+	t.Cleanup(func() { etcResolvConf = old })
+	etcResolvConf = "/nonexistent/resolv.conf" // not a link: bound as is
 	tmp := t.TempDir()
 	conf := filepath.Join(tmp, "resolv.conf")
 	require.NoError(t, os.WriteFile(conf, []byte("nameserver 169.254.1.1\n"), 0o644))
@@ -35,7 +37,7 @@ func TestSandboxDNSArgs(t *testing.T) {
 	assert.Equal(t, want, argv[:len(want)])
 	// The resolv.conf bind comes after the /etc bind so it is not covered.
 	etc := slices.Index(argv, "/etc")
-	rc := slices.Index(argv, "/etc/resolv.conf")
+	rc := slices.Index(argv, "/nonexistent/resolv.conf")
 	require.Positive(t, rc)
 	assert.Equal(t, []string{"--ro-bind", conf}, argv[rc-2:rc])
 	assert.Less(t, etc, rc)
@@ -52,7 +54,23 @@ func TestSandboxDNSArgs(t *testing.T) {
 	argv, _, err = sandboxArgs(s, "agent", nil, tmp)
 	require.NoError(t, err)
 	assert.NotContains(t, argv, "--dns-forward")
-	assert.NotContains(t, argv, "/etc/resolv.conf")
+	assert.NotContains(t, argv, "/nonexistent/resolv.conf")
+}
+
+func TestResolvConfDst(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain")
+	require.NoError(t, os.WriteFile(plain, nil, 0o644))
+	assert.Equal(t, plain, resolvConfDst(plain))
+	assert.Equal(t, filepath.Join(dir, "missing"), resolvConfDst(filepath.Join(dir, "missing")))
+	// /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf, dangling.
+	etc := filepath.Join(dir, "etc")
+	require.NoError(t, os.Mkdir(etc, 0o755))
+	require.NoError(t, os.Symlink("../run/systemd/resolve/stub-resolv.conf", filepath.Join(etc, "resolv.conf")))
+	assert.Equal(t, filepath.Join(dir, "run/systemd/resolve/stub-resolv.conf"), resolvConfDst(filepath.Join(etc, "resolv.conf")))
+	// Two hops, absolute (NixOS: /etc/resolv.conf -> /etc/static/resolv.conf -> ...).
+	require.NoError(t, os.Symlink(filepath.Join(etc, "resolv.conf"), filepath.Join(dir, "hop")))
+	assert.Equal(t, filepath.Join(dir, "run/systemd/resolve/stub-resolv.conf"), resolvConfDst(filepath.Join(dir, "hop")))
 }
 
 func TestSandboxDNSValidation(t *testing.T) {
@@ -183,16 +201,14 @@ func dnsAnswer(q []byte) []byte {
 func TestSandboxPastaDNS(t *testing.T) {
 	bwrap := needBwrap(t)
 	pasta, _ := needPasta(t)
-	// A loopback resolver: our fake one when port 53 can be bound, else
-	// the host's own stub (CI runners use systemd-resolved at
-	// 127.0.0.53, the case this covers).
-	stub, name, want := "127.0.0.54", "agent.test", "192.0.2.7"
+	// A loopback resolver, as systemd-resolved's 127.0.0.53 is. Not
+	// .53 or .54: resolved listens on both. Not the host's real stub
+	// either: that answers from the network, which made this test flaky
+	// in CI (#131). Port 53 needs privilege; CI lowers
+	// net.ipv4.ip_unprivileged_port_start.
+	const stub, name, want = "127.0.0.77", "agent.test", "192.0.2.7"
 	if !fakeResolver(t, stub+":53") {
-		ns, err := firstNameserver("/etc/resolv.conf")
-		if err != nil || !netip.MustParseAddr(ns).IsLoopback() {
-			t.Skipf("cannot bind :53 and host nameserver %q is not loopback", ns)
-		}
-		stub, name, want = ns, "github.com", ""
+		t.Skip("cannot bind " + stub + ":53 (set net.ipv4.ip_unprivileged_port_start=53)")
 	}
 
 	tmp := t.TempDir()

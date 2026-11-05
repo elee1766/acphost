@@ -19,7 +19,10 @@ decision). Unset keeps the old behavior.
   be IP addresses. Only valid with pasta.
 - `Sandbox.ResolvConf` (`resolv_conf: <path>`): a host file bound
   read-only over /etc/resolv.conf, after all other binds so an /etc bind
-  does not cover it. The caller writes it (usually `nameserver <forward>`
+  does not cover it. When the host's /etc/resolv.conf is a symlink (into
+  /run on systemd-resolved hosts, /etc/static on NixOS), the bind goes to
+  the link's final target: bwrap cannot create a file through a dangling
+  link, and the sandbox's /etc is normally the host's. The caller writes it (usually `nameserver <forward>`
   plus its own `search`/`options` lines).
 - The forward address must not fall inside a `Deny` CIDR: the nft rules
   apply to it like any destination, so `SandboxArgs` rejects that spec.
@@ -59,9 +62,10 @@ search tailnet.example
 
 ## Test
 
-`TestSandboxPastaDNS` runs a loopback resolver (a fake one on
-127.0.0.54:53 when it can bind, else the host's own stub, which is
-127.0.0.53 on the Ubuntu CI runners), shows `CheckSandboxDNS` fails
+`TestSandboxPastaDNS` runs a fake loopback resolver on 127.0.0.77:53
+(CI lowers `net.ipv4.ip_unprivileged_port_start` so it can bind; it skips
+elsewhere). Using the runner's real 127.0.0.53 stub instead was flaky,
+since it answers from the network (#131). The test shows `CheckSandboxDNS` fails
 without `dns`, then resolves with it, and runs a real agent whose
 `getent hosts` resolves through the bound resolv.conf with deny rules for
 10/8, 100.64/10 and 192.168/16 loaded.
