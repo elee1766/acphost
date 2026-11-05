@@ -81,6 +81,9 @@ type Spec struct {
 	// User, if set, runs the agent as another uid/gid in a user
 	// namespace. Nil leaves ids unchanged.
 	User *User `json:"user,omitempty"`
+	// Cgroup, if set, gives the agent its own cgroup v2 with limits. Nil
+	// touches no cgroupfs.
+	Cgroup *Cgroup `json:"cgroup,omitempty"`
 }
 
 // MethodName returns the extension method for prefix and a suffix such as

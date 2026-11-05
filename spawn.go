@@ -39,6 +39,11 @@ func Permanent(err error) bool {
 // later, as a worktree is) and the agent command, resolved with the PATH
 // in env when set.
 func CheckSpawn(s Spec, dirCreated bool) error {
+	if s.Cgroup != nil {
+		if err := checkCgroup(*s.Cgroup); err != nil {
+			return err
+		}
+	}
 	if !dirCreated && s.Sandbox == nil {
 		if st, err := os.Stat(s.Dir); err != nil {
 			return Permanentf("session dir %s: %w", s.Dir, err)
