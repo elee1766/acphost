@@ -59,9 +59,10 @@ search tailnet.example
 
 ## Test
 
-`TestSandboxPastaDNS` runs a loopback resolver (a fake one on
-127.0.0.54:53 when it can bind, else the host's own stub, which is
-127.0.0.53 on the Ubuntu CI runners), shows `CheckSandboxDNS` fails
+`TestSandboxPastaDNS` runs a fake loopback resolver on 127.0.0.77:53
+(CI lowers `net.ipv4.ip_unprivileged_port_start` so it can bind; it skips
+elsewhere). Using the runner's real 127.0.0.53 stub instead was flaky,
+since it answers from the network (#131). The test shows `CheckSandboxDNS` fails
 without `dns`, then resolves with it, and runs a real agent whose
 `getent hosts` resolves through the bound resolv.conf with deny rules for
 10/8, 100.64/10 and 192.168/16 loaded.
