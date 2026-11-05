@@ -151,6 +151,22 @@ spec.Sandbox.Deny = []string{"10.0.0.0/8", "169.254.169.254/32", "fd00::/8"}
 One-time setup (root): install the `passt` package (provides `pasta`),
 `nftables` (provides `nft`) and `bubblewrap`.
 
+DNS: on a host whose resolv.conf names a loopback resolver (such as
+systemd-resolved's 127.0.0.53) the namespace cannot reach it. Set
+`Sandbox.DNS` (pasta `--dns-forward`/`--dns-host`) and `Sandbox.ResolvConf`
+(bound read-only over /etc/resolv.conf). acphost picks no resolver; this
+is consumer config:
+
+```go
+spec.Sandbox.DNS = &acphost.DNS{Forward: "169.254.1.1", Host: "127.0.0.53"}
+spec.Sandbox.ResolvConf = "/etc/acphost/resolv.conf" // "nameserver 169.254.1.1"
+```
+
+The forward address must be outside `Deny`. `acphost.CheckSandboxDNS(sb,
+name)` resolves a name under pasta once at load time and returns a
+permanent error naming these settings when it fails. Details in
+`docs/notes/124-sandbox-dns.md`.
+
 ## User namespace
 
 Set `Spec.User` to run the agent as another uid/gid inside a user
