@@ -219,9 +219,15 @@ func (h *Host) run() error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
+	// Stop on return and exit the goroutine, so a Main run in-process (tests,
+	// acphosttest) leaves no goroutine or signal handler behind.
+	defer signal.Stop(sigs)
 	go func() {
-		s := <-sigs
-		h.stop("signal " + s.String())
+		select {
+		case s := <-sigs:
+			h.stop("signal " + s.String())
+		case <-h.stopping:
+		}
 	}()
 	go h.acceptLoop(ln)
 	go h.leaseLoop()

@@ -426,6 +426,23 @@ go test -run TestIsolationTwoSubIDSessions -v .
 
 CI runs it. Details in `docs/notes/67-isolation-e2e.md`.
 
+## In-process test host
+
+Package `acphosttest` runs a host in the test process, which skips
+spawning a host binary (about 1s per host under -race):
+
+```go
+h := acphosttest.Start(t, dir, acphost.Spec{Session: "s1", Command: agent, Dir: dir})
+nc, rd, w, err := acphost.Connect(ctx, dir)
+// ...
+ex, _ := h.Exit() // waits for the agent to exit
+```
+
+Start returns once acp.sock accepts. When the agent exits, Main returns
+and `h.Done()` closes. At test end, cleanup sends the stop method, waits
+for Main and removes host.pid. While Main runs its SIGTERM and SIGINT
+handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
+
 ## Release notes
 
 v0.8.0 (2026-11-05): typed spawn failures and the pdeath helper in
