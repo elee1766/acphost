@@ -76,6 +76,20 @@ type preflightEnv struct {
 	// privileges newuidmap needs, or nil. Tests replace it since they
 	// cannot make root-owned setuid files.
 	privileged func(path string) error
+	// dnsName, when set, adds the sandbox.dns check resolving it via
+	// dnsCheck (CheckSandboxDNS outside tests).
+	dnsName  string
+	dnsCheck func(s Sandbox, name string) error
+}
+
+// PreflightOption changes what Preflight checks.
+type PreflightOption func(*preflightEnv)
+
+// WithDNSCheck adds the sandbox.dns check: CheckSandboxDNS(spec.Sandbox,
+// name) when the spec uses pasta networking and pasta is found. It
+// spawns pasta, so it is opt-in (#136).
+func WithDNSCheck(name string) PreflightOption {
+	return func(e *preflightEnv) { e.dnsName = name }
 }
 
 // Preflight checks the host prerequisites for the isolation s asks for
@@ -84,14 +98,19 @@ type preflightEnv struct {
 // config once at load time instead of failing every spawn (#58). Each
 // failed check carries a Hint with the host config change that fixes it
 // (#115).
-func Preflight(s Spec) (PreflightReport, error) {
-	return preflight(s, preflightEnv{
+func Preflight(s Spec, opts ...PreflightOption) (PreflightReport, error) {
+	env := preflightEnv{
 		cgroupRoot: "/sys/fs/cgroup",
 		etc:        filepath.Dir(subuidPath),
 		path:       os.Getenv("PATH"),
 		uid:        os.Geteuid(),
 		privileged: setuidOrCaps,
-	})
+		dnsCheck:   CheckSandboxDNS,
+	}
+	for _, o := range opts {
+		o(&env)
+	}
+	return preflight(s, env)
 }
 
 // failure is a failed check: what is wrong and how to fix it.
@@ -134,8 +153,14 @@ func preflight(s Spec, env preflightEnv) (PreflightReport, error) {
 		add("sandbox", "sandbox.bwrap", preflightBinary(s.Sandbox.Bwrap, "bwrap",
 			"install bubblewrap (apt install bubblewrap, dnf install bubblewrap) or set sandbox.bwrap to its path", env))
 		if s.Sandbox.Network == "pasta" {
-			add("network", "network.pasta", preflightBinary(s.Sandbox.Pasta, "pasta",
-				"install passt, which ships pasta (apt install passt, dnf install passt), or set sandbox.pasta to its path", env))
+			f := preflightBinary(s.Sandbox.Pasta, "pasta",
+				"install passt, which ships pasta (apt install passt, dnf install passt), or set sandbox.pasta to its path", env)
+			add("network", "network.pasta", f)
+			// Without pasta the dns check cannot run; network.pasta
+			// already reports that.
+			if f == nil && env.dnsName != "" && env.dnsCheck != nil {
+				add("sandbox", "sandbox.dns", preflightDNS(*s.Sandbox, env))
+			}
 		}
 	}
 	return r, nil
@@ -308,6 +333,14 @@ func preflightUserMap(u User, env preflightEnv, subuid, subgid []Range) *failure
 	_, _, err := userMaps(u, env.uid, filepath.Join(env.etc, "subuid"), filepath.Join(env.etc, "subgid"), subuid, subgid)
 	if err != nil {
 		return fail("fix spec.user: each group must be held by the caller or in its subgid range, and no outside gid may be mapped twice", "%v", err)
+	}
+	return nil
+}
+
+func preflightDNS(s Sandbox, env preflightEnv) *failure {
+	if err := env.dnsCheck(s, env.dnsName); err != nil {
+		return fail("set sandbox.dns.forward to a resolver reachable from the namespace and sandbox.resolv_conf to a file naming it (a loopback stub such as 127.0.0.53 is not reachable); see docs/notes/124-sandbox-dns.md",
+			"resolve %s: %v", env.dnsName, err)
 	}
 	return nil
 }
