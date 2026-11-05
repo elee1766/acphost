@@ -22,7 +22,23 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_KEY }}
       - uses: googleapis/release-please-action@v4
+        id: rp
         with:
           token: ${{ steps.app.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      # Hand-written release notes live in docs/notes/<issue>-release-vX.Y.Z.md
+      # (#94). Append a link to the matching note, if any, to the release.
+      - uses: actions/checkout@v5
+        if: steps.rp.outputs.release_created
+      - name: link release notes
+        if: steps.rp.outputs.release_created
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TAG: ${{ steps.rp.outputs.tag_name }}
+        run: |
+          note=$(ls docs/notes/*-release-"$TAG".md 2>/dev/null | head -1)
+          [ -n "$note" ] || exit 0
+          body=$(gh release view "$TAG" --json body -q .body)
+          printf '%s\n\nRelease notes: %s/%s/blob/%s/%s\n' "$body" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" "$note" |
+            gh release edit "$TAG" --notes-file -
