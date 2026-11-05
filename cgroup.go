@@ -198,3 +198,96 @@ func delegatedCgroup(procFile, root string) (DelegatedInfo, error) {
 	info.Writable = syscall.Access(info.Path, 2 /* W_OK */) == nil
 	return info, nil
 }
+
+// SetupDelegation prepares own, a delegated cgroup v2 directory such as
+// DelegatedInfo.Path, to hold session cgroups. Cgroup v2 forbids
+// processes in a cgroup whose children have controllers enabled, so it
+// moves the calling process into <own>/controller, enables controllers
+// in <own>/cgroup.subtree_control, creates <own>/sessions and enables
+// them there too. It returns <own>/sessions for use as Cgroup.Parent.
+//
+// A repeat call, for example after a controller restart, succeeds and
+// changes nothing. A controller missing from <own>/cgroup.controllers or
+// a file that cannot be written returns a PermanentError naming the file.
+func SetupDelegation(own string, controllers []string) (sessionsParent string, err error) {
+	return setupDelegation(own, os.Getpid(), controllers)
+}
+
+// setupDelegation is SetupDelegation with the pid injectable so tests can
+// run against a temp dir.
+func setupDelegation(own string, pid int, controllers []string) (string, error) {
+	trace("cgroupfs:setup-delegation")
+	avail, err := os.ReadFile(filepath.Join(own, "cgroup.controllers"))
+	if err != nil {
+		return "", Permanentf("cgroup: %w", err)
+	}
+	for _, c := range controllers {
+		if !slices.Contains(strings.Fields(string(avail)), c) {
+			return "", Permanentf("cgroup: controller %s not in %s", c, filepath.Join(own, "cgroup.controllers"))
+		}
+	}
+	ctl := filepath.Join(own, "controller")
+	if err := mkdirCgroup(ctl); err != nil {
+		return "", err
+	}
+	procs := filepath.Join(ctl, "cgroup.procs")
+	if !slices.Contains(readFields(procs), strconv.Itoa(pid)) {
+		if err := writeCgroupFile(procs, strconv.Itoa(pid)); err != nil {
+			return "", err
+		}
+	}
+	if err := enableControllers(own, controllers); err != nil {
+		return "", err
+	}
+	sessions := filepath.Join(own, "sessions")
+	if err := mkdirCgroup(sessions); err != nil {
+		return "", err
+	}
+	if err := enableControllers(sessions, controllers); err != nil {
+		return "", err
+	}
+	return sessions, nil
+}
+
+// enableControllers writes only the controllers not yet in
+// dir/cgroup.subtree_control, so a repeat call writes nothing.
+func enableControllers(dir string, controllers []string) error {
+	have := readFields(filepath.Join(dir, "cgroup.subtree_control"))
+	var add []string
+	for _, c := range controllers {
+		if !slices.Contains(have, c) {
+			add = append(add, "+"+c)
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	return writeCgroupFile(filepath.Join(dir, "cgroup.subtree_control"), strings.Join(add, " "))
+}
+
+func readFields(file string) []string {
+	b, _ := os.ReadFile(file)
+	return strings.Fields(string(b))
+}
+
+func mkdirCgroup(dir string) error {
+	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
+			return Permanentf("cgroup: %w", err)
+		}
+		return fmt.Errorf("cgroup: %w", err)
+	}
+	return nil
+}
+
+// writeCgroupFile writes value to file. Permission errors are permanent:
+// retrying will not make the delegation writable.
+func writeCgroupFile(file, value string) error {
+	if err := os.WriteFile(file, []byte(value), 0o644); err != nil {
+		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
+			return Permanentf("cgroup %s: %w", file, err)
+		}
+		return fmt.Errorf("cgroup %s: %w", file, err)
+	}
+	return nil
+}

@@ -117,3 +117,60 @@ func TestDelegatedCgroup(t *testing.T) {
 	_, err = delegatedCgroup(proc, root)
 	assert.Error(t, err, "no v2 line")
 }
+
+func fakeDelegation(t *testing.T, controllers string) string {
+	t.Helper()
+	own := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(own, "cgroup.controllers"), []byte(controllers+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(own, "cgroup.subtree_control"), nil, 0o644))
+	return own
+}
+
+func readString(t *testing.T, file string) string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	require.NoError(t, err)
+	return string(b)
+}
+
+func TestSetupDelegation(t *testing.T) {
+	own := fakeDelegation(t, "cpu memory pids")
+	got, err := setupDelegation(own, 4242, []string{"memory", "pids"})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(own, "sessions"), got)
+	assert.Equal(t, "4242", readString(t, filepath.Join(own, "controller", "cgroup.procs")))
+	assert.Equal(t, "+memory +pids", readString(t, filepath.Join(own, "cgroup.subtree_control")))
+	assert.Equal(t, "+memory +pids", readString(t, filepath.Join(got, "cgroup.subtree_control")))
+
+	// A real cgroupfs reads back names without "+". Mimic that, then
+	// make every file read-only: a repeat call must not write anything.
+	for _, f := range []string{filepath.Join(own, "cgroup.subtree_control"), filepath.Join(got, "cgroup.subtree_control")} {
+		require.NoError(t, os.WriteFile(f, []byte("memory pids\n"), 0o444))
+	}
+	require.NoError(t, os.Chmod(filepath.Join(own, "controller", "cgroup.procs"), 0o444))
+	again, err := setupDelegation(own, 4242, []string{"memory", "pids"})
+	require.NoError(t, err)
+	assert.Equal(t, got, again)
+}
+
+func TestSetupDelegationMissingController(t *testing.T) {
+	own := fakeDelegation(t, "cpu pids")
+	_, err := setupDelegation(own, 4242, []string{"memory", "pids"})
+	var pe *PermanentError
+	require.ErrorAs(t, err, &pe)
+	assert.Contains(t, err.Error(), filepath.Join(own, "cgroup.controllers"))
+	assert.NoDirExists(t, filepath.Join(own, "sessions"))
+}
+
+func TestSetupDelegationReadOnly(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores file modes")
+	}
+	own := fakeDelegation(t, "memory pids")
+	file := filepath.Join(own, "cgroup.subtree_control")
+	require.NoError(t, os.Chmod(file, 0o444))
+	_, err := setupDelegation(own, 4242, []string{"memory"})
+	var pe *PermanentError
+	require.ErrorAs(t, err, &pe)
+	assert.Contains(t, err.Error(), file)
+}
