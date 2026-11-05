@@ -324,7 +324,7 @@ r, err := acphost.Preflight(spec)
 if err == nil && !r.OK() {
 	for _, c := range r.Checks {
 		if !c.OK {
-			log.Printf("%s: %s", c.Feature, c.Reason)
+			log.Printf("%s: %s (fix: %s)", c.Name, c.Reason, c.Hint)
 		}
 	}
 }
@@ -335,6 +335,14 @@ controllers in `cgroup.subtree_control`), `user_namespace`
 (newuidmap/newgidmap on PATH, ids covered by `/etc/subuid` and
 `/etc/subgid`), `sandbox` (bwrap) and `network` (pasta). Features the
 spec does not ask for are absent. Details in `docs/notes/58-preflight.md`.
+
+Each feature has several named checks (`cgroup.controllers`,
+`user.subuid`, `user.newuidmap`, `network.pasta`, ...) and a failed one
+has a `Hint` with the host config fix, such as the `Delegate=` line or
+the `usermod --add-subuids` command. `r.String()` is the report text, one
+line per check with a `fix:` line under each failure, so a runbook can
+print it and stop. Names, hints and the text are in
+`docs/notes/115-preflight-hints.md`.
 
 ## Isolation report
 
