@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/elee1766/acphost/compare/v0.8.2...v0.8.3) (2026-11-05)
+
+
+### Features
+
+* **user:** check the whole mapped subuid/subgid range ([#113](https://github.com/elee1766/acphost/issues/113)) ([#118](https://github.com/elee1766/acphost/issues/118)) ([7cbaf43](https://github.com/elee1766/acphost/commit/7cbaf4399f3971b639dc7435ab5078995752eaef))
+
 ## [0.8.2](https://github.com/elee1766/acphost/compare/v0.8.1...v0.8.2) (2026-11-05)
 
 
