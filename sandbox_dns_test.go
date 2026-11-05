@@ -3,7 +3,6 @@ package acphost
 import (
 	"encoding/json"
 	"net"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,16 +182,15 @@ func dnsAnswer(q []byte) []byte {
 func TestSandboxPastaDNS(t *testing.T) {
 	bwrap := needBwrap(t)
 	pasta, _ := needPasta(t)
-	// A loopback resolver: our fake one when port 53 can be bound, else
-	// the host's own stub (CI runners use systemd-resolved at
-	// 127.0.0.53, the case this covers).
-	stub, name, want := "127.0.0.54", "agent.test", "192.0.2.7"
+	// A loopback resolver of our own, standing in for systemd-resolved's
+	// 127.0.0.53. Port 53 needs net.ipv4.ip_unprivileged_port_start<=53
+	// (CI sets it). The test used to fall back to the host's stub and a
+	// real name, which failed on runners whose upstream DNS from inside
+	// the namespace is not reliable (#131). Not 127.0.0.54: newer
+	// systemd-resolved listens there too.
+	stub, name, want := "127.0.0.153", "agent.test", "192.0.2.7"
 	if !fakeResolver(t, stub+":53") {
-		ns, err := firstNameserver("/etc/resolv.conf")
-		if err != nil || !netip.MustParseAddr(ns).IsLoopback() {
-			t.Skipf("cannot bind :53 and host nameserver %q is not loopback", ns)
-		}
-		stub, name, want = ns, "github.com", ""
+		t.Skip("cannot bind udp " + stub + ":53: set net.ipv4.ip_unprivileged_port_start=53")
 	}
 
 	tmp := t.TempDir()
