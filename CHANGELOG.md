@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.5](https://github.com/elee1766/acphost/compare/v0.8.4...v0.8.5) (2026-11-05)
+
+
+### Features
+
+* **acphosttest:** add StartDir for a dir whose spec is already written ([#127](https://github.com/elee1766/acphost/issues/127)) ([#129](https://github.com/elee1766/acphost/issues/129)) ([45b3e35](https://github.com/elee1766/acphost/commit/45b3e35c7b800abdf8c9bb2af752aea5869cbad8))
+* **sandbox:** pasta dns forward and resolv_conf settings ([#124](https://github.com/elee1766/acphost/issues/124)) ([#128](https://github.com/elee1766/acphost/issues/128)) ([bd1f5ea](https://github.com/elee1766/acphost/commit/bd1f5eaf85655ee61ee00c7d2777cf2deb25f303))
+
+
+### Bug fixes
+
+* **sandbox:** make TestSandboxPastaDNS use only a fake resolver ([#131](https://github.com/elee1766/acphost/issues/131)) ([#133](https://github.com/elee1766/acphost/issues/133)) ([5474d93](https://github.com/elee1766/acphost/commit/5474d9314ee3f58b36e7881780793954b9b6607e))
+
 ## [0.8.4](https://github.com/elee1766/acphost/compare/v0.8.3...v0.8.4) (2026-11-05)
 
 
