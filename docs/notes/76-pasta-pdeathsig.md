@@ -18,8 +18,11 @@ agent. On 24.04 the older pasta kept the signal and the test passed.
 
 Fix: with network pasta the host now re-execs itself as a small helper
 (`_ACPHOST_PDEATH_CHILD`, like the userns helper) that sets its own
-parent-death signal, starts pasta, kills it on host death, forwards
-SIGTERM/SIGINT/SIGHUP, and exits with pasta's status. isolation.json
+parent-death signal, starts pasta, and on host death SIGKILLs its process
+group (pasta and the outer bwrap; bwrap's --die-with-parent is lost the
+same way, as the first CI run of the fix showed, and the outer bwrap is
+pid 1 of the sandbox pid namespace, so the agent dies with it). It
+forwards SIGTERM/SIGINT/SIGHUP and exits with pasta's status. isolation.json
 still records the bwrap/pasta argv without the helper. CI runs on
 ubuntu-26.04 again, and the test logs the surviving process tree if it
 fails.

@@ -72,6 +72,14 @@ func pdeathChild() {
 	for {
 		select {
 		case <-died:
+			// bwrap's --die-with-parent is cleared the same way, so
+			// killing pasta alone can leave bwrap running. The host made
+			// this helper a process group leader, and pasta and the outer
+			// bwrap stay in the group; the outer bwrap is pid 1 of the
+			// sandbox pid namespace, so its death ends the rest.
+			if unix.Getpgrp() == os.Getpid() {
+				_ = unix.Kill(-os.Getpid(), unix.SIGKILL)
+			}
 			_ = cmd.Process.Kill()
 		case s := <-term:
 			_ = cmd.Process.Signal(s)
