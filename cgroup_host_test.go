@@ -1,8 +1,11 @@
 package acphost
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,13 +20,76 @@ func TestEventsValue(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "memory.events"), []byte("low 0\nhigh 2\nmax 5\noom 1\noom_kill 1\noom_group_kill 0\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 0\nfrozen 0\n"), 0o644))
-	assert.Equal(t, int64(1), cgroupOOMKills(dir))
+	assert.Equal(t, int64(1), readCgroupStats(dir).OOMKills)
 	assert.False(t, cgroupPopulated(dir))
 	assert.True(t, waitCgroupEmpty(dir, time.Second))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0o644))
 	assert.True(t, cgroupPopulated(dir))
 	assert.False(t, waitCgroupEmpty(dir, 30*time.Millisecond))
-	assert.Equal(t, int64(0), cgroupOOMKills(t.TempDir()), "missing file")
+	assert.Equal(t, CgroupStats{}, readCgroupStats(t.TempDir()), "missing files")
+}
+
+func TestReadCgroupStats(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, s string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(s), 0o644))
+	}
+	write("memory.current", "1048576\n")
+	write("cpu.stat", "usage_usec 12345\nuser_usec 10000\nsystem_usec 2345\n")
+	write("memory.events", "low 0\nhigh 0\nmax 7\noom 2\noom_kill 2\n")
+	// No memory.peak: kernels before 5.19 lack it.
+	assert.Equal(t, CgroupStats{MemoryCurrent: 1048576, CPUUsageUsec: 12345, OOMKills: 2, MemoryMaxEvents: 7}, readCgroupStats(dir))
+	write("memory.peak", "2097152\n")
+	assert.Equal(t, int64(2097152), readCgroupStats(dir).MemoryPeak)
+}
+
+func TestCgroupStatsNotifyAndExit(t *testing.T) {
+	parent := needCgroup(t)
+	dir := t.TempDir()
+	s := cgroupSpec(t, dir, parent, "exec cat >/dev/null\n", Cgroup{PidsMax: 64})
+	require.NoError(t, WriteSpec(dir, s))
+	done := make(chan error, 1)
+	go func() { done <- Main(dir, func(o *options) { o.statsEvery = 50 * time.Millisecond }) }()
+
+	var nc net.Conn
+	require.Eventually(t, func() bool {
+		var err error
+		nc, err = net.Dial("unix", filepath.Join(dir, ACPSocket))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	defer func() { _ = nc.Close() }()
+	hello, _ := json.Marshal(Hello{Protocol: Protocol})
+	_, err := nc.Write(append(hello, '\n'))
+	require.NoError(t, err)
+	rd := bufio.NewReader(nc)
+	_ = nc.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var got CgroupStats
+	for {
+		line, err := rd.ReadBytes('\n')
+		require.NoError(t, err)
+		var m struct {
+			Method string      `json:"method"`
+			Params CgroupStats `json:"params"`
+		}
+		if json.Unmarshal(line, &m) == nil && m.Method == MethodCgroupStats {
+			got = m.Params
+			break
+		}
+	}
+	assert.Positive(t, got.MemoryCurrent, "%+v", got)
+
+	_, err = nc.Write([]byte(`{"jsonrpc":"2.0","method":"` + MethodStop + `"}` + "\n"))
+	require.NoError(t, err)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("host did not stop")
+	}
+	ex, _ := ReadExit(dir)
+	require.NotNil(t, ex.Cgroup, "%+v", ex)
+	assert.Zero(t, ex.Cgroup.OOMKills)
+	assert.NoDirExists(t, filepath.Join(parent, "s1"))
 }
 
 // needCgroup skips unless this process has a writable delegated cgroup
@@ -76,6 +142,8 @@ func TestCgroupExitCodeAndRemove(t *testing.T) {
 	require.NoError(t, WriteSpec(dir, s))
 	require.NoError(t, Main(dir))
 	ex, _ := ReadExit(dir)
+	require.NotNil(t, ex.Cgroup)
+	ex.Cgroup = nil
 	assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, ex, "agent ran inside the cgroup")
 	assert.NoDirExists(t, filepath.Join(parent, "s1"))
 }
@@ -96,6 +164,10 @@ func TestCgroupOOM(t *testing.T) {
 	require.NoError(t, Main(dir))
 	ex, _ := ReadExit(dir)
 	assert.True(t, ex.OOMKill, "%+v", ex)
+	if assert.NotNil(t, ex.Cgroup) {
+		assert.Positive(t, ex.Cgroup.OOMKills)
+		assert.Positive(t, ex.Cgroup.MemoryMaxEvents)
+	}
 	assert.Equal(t, "killed", ex.Signal)
 	assert.NoDirExists(t, filepath.Join(parent, "s1"))
 }
