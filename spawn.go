@@ -96,6 +96,7 @@ func sandboxWithEnv(s Sandbox, env []string) Sandbox {
 }
 
 func lookCommand(cmd string, env []string) error {
+	trace("look:" + cmd)
 	if strings.Contains(cmd, "/") {
 		st, err := os.Stat(cmd)
 		if err != nil {

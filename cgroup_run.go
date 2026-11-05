@@ -12,6 +12,7 @@ import (
 // the cgroup, including ones that left the agent's process group. It
 // reports false if the kernel has no cgroup.kill (before 5.14).
 func cgroupKill(dir string) bool {
+	trace("cgroupfs:kill")
 	return os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0) == nil
 }
 
@@ -43,6 +44,7 @@ func cgroupOOMKills(dir string) int64 {
 // eventsValue reads one "key value" line from a cgroup events file, 0 if
 // missing.
 func eventsValue(path, key string) int64 {
+	trace("cgroupfs:events")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0
