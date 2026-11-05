@@ -178,7 +178,39 @@ func TestMatrixExitCode(t *testing.T) {
 			assert.Equal(t, f.cgroup, ex.Cgroup != nil, "cgroup stats only with a cgroup")
 			ex.Cgroup = nil
 			assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, ex)
+			checkIsolation(t, f, dir, s)
 		})
+	}
+}
+
+// checkIsolation checks isolation.json against what matrixSpec set up.
+func checkIsolation(t *testing.T, f features, dir string, s Spec) {
+	t.Helper()
+	iso, ok, err := ReadIsolation(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	if f.cgroup {
+		assert.Equal(t, &CgroupApplied{Dir: filepath.Join(s.Cgroup.Parent, s.Session), Limits: []LimitApplied{{"pids.max", "128"}}}, iso.Cgroup)
+	} else {
+		assert.Nil(t, iso.Cgroup)
+	}
+	if f.user {
+		assert.Equal(t, &UserApplied{
+			UIDMap: []string{fmt.Sprintf("%d %d 1", s.User.UID, s.User.MapUID)},
+			GIDMap: []string{fmt.Sprintf("%d %d 1", s.User.GID, s.User.MapGID)},
+		}, iso.User)
+	} else {
+		assert.Nil(t, iso.User)
+	}
+	if f.pasta {
+		assert.Equal(t, &NetworkApplied{Mode: "pasta", PastaStarted: true}, iso.Network)
+		require.NotEmpty(t, iso.Bwrap)
+		assert.Equal(t, s.Sandbox.Pasta, iso.Bwrap[0])
+		assert.Contains(t, iso.Bwrap, s.Sandbox.Bwrap)
+		assert.Equal(t, s.Command, iso.Bwrap[len(iso.Bwrap)-1])
+	} else {
+		assert.Nil(t, iso.Network)
+		assert.Nil(t, iso.Bwrap)
 	}
 }
 

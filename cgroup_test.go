@@ -22,9 +22,10 @@ func TestPrepareCgroupWritesLimits(t *testing.T) {
 	parent := fakeCgroup(t, "cpu memory pids")
 	c := Cgroup{Parent: parent, CPUMax: "50000 100000", MemoryMax: "1073741824", MemoryHigh: "max", SwapMax: "0", PidsMax: 512}
 	require.NoError(t, checkCgroup(c))
-	dir, err := prepareCgroup(c, "s1")
+	dir, limits, err := prepareCgroup(c, "s1")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(parent, "s1"), dir)
+	assert.Equal(t, []LimitApplied{{"cpu.max", "50000 100000"}, {"memory.max", "1073741824"}, {"memory.high", "max"}, {"memory.swap.max", "0"}, {"pids.max", "512"}}, limits)
 	for file, want := range map[string]string{"cpu.max": "50000 100000", "memory.max": "1073741824", "memory.high": "max", "memory.swap.max": "0", "pids.max": "512"} {
 		b, err := os.ReadFile(filepath.Join(dir, file))
 		require.NoError(t, err, file)
@@ -41,7 +42,7 @@ func TestPrepareCgroupWritesLimits(t *testing.T) {
 
 func TestPrepareCgroupOnlySetFields(t *testing.T) {
 	parent := fakeCgroup(t, "pids")
-	dir, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 10}, "s")
+	dir, _, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 10}, "s")
 	require.NoError(t, err)
 	ents, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -84,7 +85,7 @@ func TestCheckCgroupErrors(t *testing.T) {
 func TestPrepareCgroupRejectsEscape(t *testing.T) {
 	parent := fakeCgroup(t, "pids")
 	for _, s := range []string{"", ".", "..", "../x", "a/b", "/abs"} {
-		_, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 1}, s)
+		_, _, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 1}, s)
 		assert.Error(t, err, s)
 	}
 	_, err := os.Stat(filepath.Join(filepath.Dir(parent), "x"))
