@@ -137,6 +137,11 @@ func preflight(s Spec, env preflightEnv) (PreflightReport, error) {
 			add("network", "network.pasta", preflightBinary(s.Sandbox.Pasta, "pasta",
 				"install passt, which ships pasta (apt install passt, dnf install passt), or set sandbox.pasta to its path", env))
 		}
+		// Spawn looks nft up on PATH only when Deny is set (pastaPrefix).
+		if len(s.Sandbox.Deny) > 0 {
+			add("network", "network.nft", preflightBinary("", nftBinary,
+				"install nftables (apt install nftables, dnf install nftables) so nft is on PATH", env))
+		}
 	}
 	return r, nil
 }

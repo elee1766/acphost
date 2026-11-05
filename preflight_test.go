@@ -191,6 +191,9 @@ func TestPreflightMissing(t *testing.T) {
 		{"pasta", "network.pasta", "pasta not found", "passt", func(f *preflightFixture, _ *Spec) {
 			_ = os.Remove(filepath.Join(f.env.path, "pasta"))
 		}},
+		{"nft", "network.nft", "nft not found", "nftables", func(_ *preflightFixture, s *Spec) {
+			s.Sandbox.Deny = []string{"10.0.0.0/8"}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,6 +230,29 @@ func TestPreflightMissing(t *testing.T) {
 				t.Fatalf("text = %q", txt)
 			}
 		})
+	}
+}
+
+func TestPreflightNFT(t *testing.T) {
+	f := newPreflightFixture(t)
+	s := f.spec()
+	s.Sandbox.Deny = []string{"10.0.0.0/8"}
+	write(t, filepath.Join(f.env.path, "nft"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(f.env.path, "nft"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := preflight(s, f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.OK() || r.Checks[len(r.Checks)-1].Name != "network.nft" {
+		t.Fatalf("report = %+v", r)
+	}
+	r, _ = preflight(f.spec(), f.env)
+	for _, c := range r.Checks {
+		if c.Name == "network.nft" {
+			t.Fatalf("nft checked without Deny: %+v", r)
+		}
 	}
 }
 

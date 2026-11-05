@@ -349,7 +349,8 @@ if err == nil && !r.OK() {
 Features: `cgroup` (writable parent under cgroupfs with the needed
 controllers in `cgroup.subtree_control`), `user_namespace`
 (newuidmap/newgidmap on PATH, ids covered by `/etc/subuid` and
-`/etc/subgid`), `sandbox` (bwrap) and `network` (pasta). Features the
+`/etc/subgid`), `sandbox` (bwrap) and `network` (pasta, and nft when `sandbox.deny` is
+set). Features the
 spec does not ask for are absent. Details in `docs/notes/58-preflight.md`.
 
 Each feature has several named checks (`cgroup.controllers`,
