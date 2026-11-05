@@ -342,9 +342,10 @@ func writeFileSync(path string, b []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// tailNoIndex finds the last frame of a plain journal by reading backwards
-// from EOF, without building an index.
-func tailNoIndex(f *os.File, size int64) (int64, int64) {
+// tailBackward finds the last frame of a plain journal by reading
+// backwards from EOF: a 64 KiB block, doubled until a full line with a
+// seq fits. It neither reads nor writes the index.
+func tailBackward(f io.ReaderAt, size int64) (int64, int64) {
 	for n := int64(64 << 10); ; n *= 2 {
 		start := max(size-n, 0)
 		buf := make([]byte, size-start)
@@ -383,6 +384,31 @@ func tailNoIndex(f *os.File, size int64) (int64, int64) {
 	}
 }
 
+// tailSeekable finds the last frame of a .zst by decompressing its blocks
+// from the last one back. Blocks hold whole lines, so each is read alone.
+func (s *journalSource) tailSeekable() (int64, int64) {
+	for i := len(s.seek) - 1; i >= 0; i-- {
+		z := s.seek[i]
+		cend := s.data
+		if i+1 < len(s.seek) {
+			cend = s.seek[i+1].coff
+		}
+		d, err := zstd.NewReader(io.NewSectionReader(s.f, z.coff, cend-z.coff), zstd.WithDecoderConcurrency(1))
+		if err != nil {
+			return 0, 0
+		}
+		b, err := io.ReadAll(d)
+		d.Close()
+		if err != nil {
+			return 0, 0
+		}
+		if seq, ms := tailBackward(bytes.NewReader(b), int64(len(b))); seq > 0 {
+			return seq, ms
+		}
+	}
+	return 0, 0
+}
+
 func journalTail(jpath string) (int64, time.Time) {
 	s, err := openSource(jpath)
 	if err != nil {
@@ -390,10 +416,18 @@ func journalTail(jpath string) (int64, time.Time) {
 	}
 	defer func() { _ = s.Close() }()
 	var seq, ms int64
-	if _, err := os.Stat(idxPath(jpath)); err != nil && !s.zst {
-		seq, ms = tailNoIndex(s.f, s.size)
-	} else if ix, err := ensureIndex(s, jpath); err == nil {
-		seq, ms = ix.lastSeq, ix.lastT
+	switch {
+	case !s.zst:
+		seq, ms = tailBackward(s.f, s.size)
+	case len(s.seek) > 0:
+		seq, ms = s.tailSeekable()
+	}
+	if seq == 0 && s.zst {
+		// No seek table (or no frame in it): the index, rebuilt by one
+		// scan if missing.
+		if ix, err := ensureIndex(s, jpath); err == nil {
+			seq, ms = ix.lastSeq, ix.lastT
+		}
 	}
 	if seq == 0 {
 		return 0, time.Time{}
