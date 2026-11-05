@@ -12,7 +12,14 @@ worktrees, since the test user cannot.
 
 It skips (with the reason) when newuidmap/newgidmap are missing, user
 namespaces do not work, the caller has fewer than two subid blocks, or
-`Preflight` fails for a block. CI has no subids, so it skips there.
+`Preflight` fails for a block. The CI runner has uidmap and subids,
+so it runs there.
+
+Running it found that the userns helper could not setresgid to a
+subordinate id: the caps CLONE_NEWUSER grants are dropped at the
+helper's exec, before the maps exist. The helper now gets
+CAP_SETUID/CAP_SETGID as ambient caps and clears them before exec'ing
+the agent.
 
 Run on a host with subids for the current user:
 
