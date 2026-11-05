@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -135,6 +136,39 @@ func TestSandboxReconnectStop(t *testing.T) {
 	assert.Equal(t, "controller requested stop", ex.Reason)
 	assert.NotEmpty(t, ex.Signal)
 	assert.Eventually(t, func() bool { return !procWith(token) }, 5*time.Second, 50*time.Millisecond, "agent killed")
+}
+
+// procTree describes each process with token in its command line and its
+// ancestors, for failure messages.
+func procTree(token string) string {
+	var b strings.Builder
+	ents, _ := os.ReadDir("/proc")
+	for _, e := range ents {
+		c, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil || !strings.Contains(string(c), token) {
+			continue
+		}
+		for pid := e.Name(); pid != "0" && pid != ""; {
+			st, _ := os.ReadFile(filepath.Join("/proc", pid, "status"))
+			cl, _ := os.ReadFile(filepath.Join("/proc", pid, "cmdline"))
+			var ppid, state, sig string
+			for _, l := range strings.Split(string(st), "\n") {
+				k, v, _ := strings.Cut(l, ":")
+				switch k {
+				case "PPid":
+					ppid = strings.TrimSpace(v)
+				case "State":
+					state = strings.TrimSpace(v)
+				case "SigBlk", "SigIgn", "NSpid":
+					sig += " " + k + "=" + strings.TrimSpace(v)
+				}
+			}
+			fmt.Fprintf(&b, "pid %s ppid %s %s%s: %s\n", pid, ppid, state, sig, strings.ReplaceAll(string(cl), "\x00", " "))
+			pid = ppid
+		}
+		b.WriteString("--\n")
+	}
+	return b.String()
 }
 
 // procWith reports whether a process has token in its command line.

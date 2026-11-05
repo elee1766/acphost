@@ -284,7 +284,9 @@ func TestMatrixPdeathsig(t *testing.T) {
 			require.Eventually(t, func() bool { return procWith(token) && procWith(s.Command) }, 10*time.Second, 20*time.Millisecond)
 			require.NoError(t, host.Process.Kill())
 			_ = host.Wait()
-			assert.Eventually(t, func() bool { return !procWith(s.Command) }, 5*time.Second, 50*time.Millisecond, "agent died with the host")
+			if !assert.Eventually(t, func() bool { return !procWith(s.Command) }, 5*time.Second, 50*time.Millisecond, "agent died with the host") {
+				t.Log(procTree(s.Command))
+			}
 		})
 	}
 }
