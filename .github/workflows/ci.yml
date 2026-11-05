@@ -25,9 +25,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q bubblewrap passt nftables uidmap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # TestSandboxPastaDNS runs a fake resolver on 127.0.0.77:53.
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=53
       - run: |
           set -o pipefail
-          go test -race -v -run 'TestSandbox|TestUserns' ./... 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL|PASS)'
+          go test -race -v -run 'TestSandbox|TestUserns' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
       # Cgroup integration tests need a delegated cgroup with memory and
       # pids. P is owned by the runner and holds no processes, so it can
       # enable controllers. The shell moves into the leaf P/test, so P is
