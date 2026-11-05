@@ -84,7 +84,7 @@ func dialSince(t *testing.T, dir string, since int64) string {
 func TestRedactorJournalAndReplay(t *testing.T) {
 	dir := t.TempDir()
 	var froms []string
-	done := startRedactHost(t, dir, "2", WithRedactor(func(from string, msg []byte) []byte {
+	done := startRedactHost(t, dir, "30", WithRedactor(func(from string, msg []byte) []byte {
 		froms = append(froms, from)
 		return bytes.ReplaceAll(msg, []byte("s3cret"), []byte("REDACTED"))
 	}))
@@ -94,7 +94,7 @@ func TestRedactorJournalAndReplay(t *testing.T) {
 	// Reconnects asking for everything after seq 0 replay from the journal.
 	assert.Equal(t, redacted, dialSince(t, dir, 0))
 	assert.Equal(t, redacted, dialSince(t, dir, 0))
-	waitHost(t, done)
+	stopHost(t, dir, done) // instead of waiting out the agent's sleep
 
 	assert.Equal(t, []string{redacted}, journalMsgs(t, dir))
 	raw, err := os.ReadFile(filepath.Join(dir, JournalFile))

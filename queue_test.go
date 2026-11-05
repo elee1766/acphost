@@ -82,14 +82,23 @@ func want(n int) []int {
 
 const (
 	floodFrames = 4000
-	floodSize   = 8 << 10 // ~32 MB total, four times the queue bound
+	floodSize   = 256 // ~1 MB total
 )
+
+// smallQueue lowers the queue byte bound for one test, so the flood is
+// four times the bound without pushing 32 MB through -race.
+func smallQueue(t *testing.T) {
+	old := queueBytes
+	queueBytes = floodFrames * floodSize / 4
+	t.Cleanup(func() { queueBytes = old })
+}
 
 // TestBackpressureStalledController: a connected controller that never
 // reads does not block the agent or grow the queue past its bound, and a
 // late reader gets every frame in order, the overflow replayed from the
 // journal.
 func TestBackpressureStalledController(t *testing.T) {
+	smallQueue(t)
 	h := testHost(t)
 	hostEnd, ctrlEnd := socketPair(t)
 	h.gen++
@@ -118,6 +127,7 @@ func TestBackpressureStalledController(t *testing.T) {
 // agent is not blocked and nothing is buffered; a controller connecting
 // with since=0 gets every frame from the journal in order.
 func TestBackpressureNoController(t *testing.T) {
+	smallQueue(t)
 	h := testHost(t)
 	require.NoError(t, h.readAgent(bytes.NewReader(agentOutput(floodFrames, floodSize))))
 	assert.Empty(t, h.agentReqs)

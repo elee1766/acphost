@@ -36,13 +36,15 @@ const (
 	IndexEvery = 256
 
 	idxRecSize = 16
-	// maxBlock caps the uncompressed size of one zstd block, so a seek
-	// decompresses at most about this much (or one frame, if larger).
-	maxBlock = 4 << 20
 
 	skippableMagic = 0x184D2A5E
 	seekableMagic  = 0x8F92EAB1
 )
+
+// maxBlock caps the uncompressed size of one zstd block, so a seek
+// decompresses at most about this much (or one frame, if larger). A
+// variable so tests can cross it without writing megabytes.
+var maxBlock = 4 << 20
 
 // ErrJournalCompressed is returned when a host is started in a session
 // whose journal has been compressed. A compressed journal is final.

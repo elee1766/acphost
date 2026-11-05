@@ -438,7 +438,9 @@ func (h *Host) leaseLoop() {
 	if lease <= 0 {
 		return
 	}
-	t := time.NewTicker(time.Second)
+	// Check four times per lease, at most once a second, so a short lease
+	// is not stretched to the next whole second.
+	t := time.NewTicker(min(time.Second, max(lease/4, 10*time.Millisecond)))
 	defer t.Stop()
 	for {
 		select {
