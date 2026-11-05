@@ -28,10 +28,27 @@ type Option func(*options)
 
 type options struct {
 	exporter   ExporterFactory
+	redactor   Redactor
 	statsEvery time.Duration // MethodExportStats period; tests shorten it
 }
 
 // WithExporter sets the conversation export factory. Nil means no export.
 func WithExporter(f ExporterFactory) Option {
 	return func(o *options) { o.exporter = f }
+}
+
+// Redactor rewrites a frame's JSON-RPC message before it is written to the
+// journal. from is "agent" or "controller". msg must not be retained or
+// modified; return a new slice or msg itself. It runs with the host's state
+// lock held, so it must be quick.
+type Redactor func(from string, msg []byte) []byte
+
+// WithRedactor sets a Redactor applied to each frame before it is
+// journaled. Only the journal on disk is redacted, and so replays read from
+// it after a reconnect. Live frames forwarded to the connected controller or
+// agent, and frames passed to an Exporter, are unchanged. If the redactor
+// returns invalid JSON the frame's msg is written as null and the host logs
+// a warning, so the journal stays parseable. Nil means no redaction.
+func WithRedactor(r Redactor) Option {
+	return func(o *options) { o.redactor = r }
 }
