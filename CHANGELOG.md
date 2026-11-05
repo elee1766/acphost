@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.6](https://github.com/elee1766/acphost/compare/v0.8.5...v0.8.6) (2026-11-05)
+
+
+### Features
+
+* **preflight:** opt-in sandbox.dns check via WithDNSCheck ([#136](https://github.com/elee1766/acphost/issues/136)) ([#139](https://github.com/elee1766/acphost/issues/139)) ([2e30c93](https://github.com/elee1766/acphost/commit/2e30c93d4ff90b1b798abdd4fb812617584bf345))
+
 ## [0.8.5](https://github.com/elee1766/acphost/compare/v0.8.4...v0.8.5) (2026-11-05)
 
 
