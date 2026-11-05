@@ -35,11 +35,10 @@ func Example() {
 	// a subcommand that calls acphost.Main(dir); here it runs in-process.
 	done := make(chan error, 1)
 	go func() { done <- acphost.Main(dir) }()
-	for i := 0; i < 500 && !acphost.Alive(dir); i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
 
-	// 3. Connect. The welcome carries the last journal seq.
+	// 3. Connect. The welcome carries the last journal seq. acp.sock
+	// appears once Main is listening, so retry until it does: there is no
+	// event to wait on from outside the host process.
 	ctx := context.Background()
 	var nc net.Conn
 	var err error
@@ -47,18 +46,20 @@ func Example() {
 		if nc, _, _, err = acphost.Connect(ctx, dir); err == nil {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) // waiting for Main to listen; see above
 	}
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	// Wait until the agent's notification is in the journal.
+	// Wait until the agent's notification is in the journal. It may have
+	// been written before this client connected, so it need not arrive
+	// live, and the journal file is the only outside signal.
 	for range 500 {
 		if seq, _ := acphost.JournalTail(dir); seq > 0 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) // polling the journal; see above
 	}
 	_ = nc.Close() // the client goes away
 

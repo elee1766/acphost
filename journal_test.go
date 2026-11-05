@@ -55,25 +55,32 @@ func TestFollowJournal(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`{"seq":1,"msg":{}}`+"\n"), 0o600))
 	_, off, err := acphost.ReadJournal(path, 0)
 	require.NoError(t, err)
+	// A complete frame then a half-written one, both there before the
+	// follower starts. Its first pass reports 2 and stops at the partial
+	// line, so receiving 2 shows the partial was seen, with no sleep.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, _ = f.WriteString(`{"seq":2,"msg":{}}` + "\n" + `{"seq":3,`)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	got := make(chan int64, 4)
 	done := make(chan error, 1)
 	go func() { done <- acphost.FollowJournal(ctx, path, off, func(f acphost.Frame) { got <- f.Seq }) }()
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-	require.NoError(t, err)
-	// A half-written frame is not reported until its newline arrives.
-	_, _ = f.WriteString(`{"seq":2,`)
-	time.Sleep(300 * time.Millisecond)
+	next := func() int64 {
+		select {
+		case s := <-got:
+			return s
+		case <-time.After(5 * time.Second):
+			t.Fatal("no frame followed")
+			return 0
+		}
+	}
+	assert.Equal(t, int64(2), next())
+	// A half-written frame is reported once its newline arrives.
 	_, _ = f.WriteString(`"msg":{}}` + "\n")
 	_ = f.Close()
-	select {
-	case s := <-got:
-		assert.Equal(t, int64(2), s)
-	case <-time.After(5 * time.Second):
-		t.Fatal("no frame followed")
-	}
+	assert.Equal(t, int64(3), next())
 	cancel()
+	assert.Empty(t, got, "each frame reported once")
 	require.NoError(t, <-done)
 }
