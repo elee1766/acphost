@@ -1,0 +1,30 @@
+name: diag76
+
+on:
+  pull_request:
+
+jobs:
+  pasta2604:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap passt nftables uidmap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          uname -a; pasta --version | head -1; bwrap --version
+          ls /etc/apparmor.d | grep -iE 'pasta|passt|bwrap' || true
+          for f in /etc/apparmor.d/*pasta* /etc/apparmor.d/*passt*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; }; done
+      - name: matrix pdeathsig
+        run: |
+          P=/sys/fs/cgroup/acphost-ci
+          sudo mkdir $P $P/test
+          echo '+memory +pids' | sudo tee /sys/fs/cgroup/cgroup.subtree_control >/dev/null
+          echo '+memory +pids' | sudo tee $P/cgroup.subtree_control >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" $P
+          echo $$ | sudo tee $P/test/cgroup.procs >/dev/null
+          ACPHOST_TEST_CGROUP=$P go test -count=1 -v -run 'TestMatrixPdeathsig' ./... || true
+          sudo dmesg | grep -iE 'apparmor|denied' | tail -30 || true
