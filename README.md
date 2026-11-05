@@ -26,7 +26,7 @@ to run agent sessions that survive controller restarts.
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost@v0.3.0
+go get github.com/elee1766/acphost@v0.5.0
 ```
 
 ## Quick start
@@ -143,6 +143,24 @@ also needs `core.sharedRepository=group`.
 With `Spec.Sandbox` too, bwrap runs inside the namespace and nests its
 own. Map failures are permanent errors carrying the helper's stderr.
 
+### Per-session subids
+
+To give each session its own ids, cut the host user's subid range into
+blocks with `AllocSubIDs`. It takes the first block whose lock file in
+`lockDir` it can flock, so concurrent sessions never share a block and a
+dead holder's block frees itself.
+
+```go
+a, err := acphost.AllocSubIDs(lockDir, uids, gids, 65536)
+if err != nil { /* PermanentError when no block is free */ }
+defer a.Release()
+u := a.User(1000, 1000)
+spec.User = &u
+```
+
+`uids` and `gids` come from `ParseSubIDs`. Use one `size` per lockDir.
+Details in `docs/notes/57-subid-alloc.md`.
+
 ## Cgroup
 
 Set `Spec.Cgroup` to give the agent its own cgroup v2,
@@ -249,6 +267,34 @@ Values are kernel counters, not deltas. A missing file reads as 0. The
 final read, taken just before the cgroup is removed, is stored as
 `"cgroup"` in `exit.json` (`Exit.Cgroup`), next to `oom_kill`.
 
+When the cgroup's OOM killer killed something during the session,
+`Exit.Reason` is `acphost.ReasonOOM` (`"oom"`) instead of the usual
+exit or stop reason. Kills from before the session started are not
+counted. Details in `docs/notes/59-oom-reason.md`.
+
+## Preflight
+
+`acphost.Preflight(spec)` checks the host prerequisites for the
+isolation a spec asks for, without spawning or writing, so a bad host
+config can be caught once at load time:
+
+```go
+r, err := acphost.Preflight(spec)
+if err == nil && !r.OK() {
+	for _, c := range r.Checks {
+		if !c.OK {
+			log.Printf("%s: %s", c.Feature, c.Reason)
+		}
+	}
+}
+```
+
+Features: `cgroup` (writable parent under cgroupfs with the needed
+controllers in `cgroup.subtree_control`), `user_namespace`
+(newuidmap/newgidmap on PATH, ids covered by `/etc/subuid` and
+`/etc/subgid`), `sandbox` (bwrap) and `network` (pasta). Features the
+spec does not ask for are absent. Details in `docs/notes/58-preflight.md`.
+
 ## Isolation report
 
 Once the agent starts, the host writes `isolation.json` in the session
@@ -273,6 +319,13 @@ Unused parts are omitted. A host with no isolation writes `{}`.
 
 ## Release notes
 
+v0.5.0 (2026-11-05): subid allocation, preflight checks and an OOM exit
+reason. `Protocol` stays 1. Details in `docs/notes/60-release-v0.5.0.md`.
+
+- `AllocSubIDs` per-session subid blocks (#57).
+- `Preflight` (#58).
+- `ReasonOOM` in `Exit.Reason` (#59).
+
 v0.4.0 (2026-11-05): cgroup setup, usage stats and an isolation report.
 `Protocol` stays 1. Details in `docs/notes/53-release-v0.4.0.md`.
 
@@ -292,7 +345,8 @@ v0.2.0 behavior.
   `DelegatedCgroup()` (#27, #28, #41).
 
 Earlier releases: `docs/notes/9-release-v0.1.0.md`,
-`docs/notes/16-release-v0.2.0.md`, `docs/notes/38-release-v0.3.0.md`.
+`docs/notes/16-release-v0.2.0.md`, `docs/notes/38-release-v0.3.0.md`,
+`docs/notes/53-release-v0.4.0.md`.
 
 ## Develop
 
