@@ -26,8 +26,10 @@ to run agent sessions that survive controller restarts.
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost@v0.5.0
+go get github.com/elee1766/acphost@v0.6.0
 ```
+
+Upgrading from v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
 
 ## Quick start
 
@@ -317,7 +319,43 @@ if err == nil && ok && iso.Cgroup != nil {
 
 Unused parts are omitted. A host with no isolation writes `{}`.
 
+## Journal redaction
+
+`WithRedactor` rewrites each frame's message before the host writes it
+to journal.jsonl, for example to strip tokens:
+
+```go
+acphost.Main(dir, acphost.WithRedactor(func(from string, msg []byte) []byte {
+	return tokenRE.ReplaceAll(msg, []byte(`"[redacted]"`))
+}))
+```
+
+Only the journal is redacted, and so replays after a reconnect. Live
+frames and frames given to an Exporter are the originals. If the
+redactor returns invalid JSON the msg is written as `null` and the host
+logs a warning. Details in `docs/notes/66-redactor.md`.
+
+## Isolation end-to-end test
+
+`TestIsolationTwoSubIDSessions` runs two sessions on separate
+`AllocSubIDs` blocks and checks each can read its own 0700 worktree but
+not the other's. It needs newuidmap/newgidmap and at least two subid
+blocks for the current user, and skips with the reason otherwise:
+
+```sh
+go test -run TestIsolationTwoSubIDSessions -v .
+```
+
+CI runs it. Details in `docs/notes/67-isolation-e2e.md`.
+
 ## Release notes
+
+v0.6.0 (2026-11-05): journal redaction and a fix for subordinate id
+maps. `Protocol` stays 1. Details in `docs/notes/68-release-v0.6.0.md`.
+
+- `WithRedactor` (#66).
+- `Spec.User` mapped to subordinate ids now starts (#67).
+- Isolation end-to-end test (#67).
 
 v0.5.0 (2026-11-05): subid allocation, preflight checks and an OOM exit
 reason. `Protocol` stays 1. Details in `docs/notes/60-release-v0.5.0.md`.
@@ -346,7 +384,7 @@ v0.2.0 behavior.
 
 Earlier releases: `docs/notes/9-release-v0.1.0.md`,
 `docs/notes/16-release-v0.2.0.md`, `docs/notes/38-release-v0.3.0.md`,
-`docs/notes/53-release-v0.4.0.md`.
+`docs/notes/53-release-v0.4.0.md`, `docs/notes/60-release-v0.5.0.md`.
 
 ## Develop
 
