@@ -123,6 +123,23 @@ func TestCheckSandboxDNSNotPasta(t *testing.T) {
 	assert.NoError(t, CheckSandboxDNS(Sandbox{Network: "none"}, "example.com"))
 }
 
+// TestResolvConfDst covers a host /etc/resolv.conf that is a symlink
+// into /run, as with systemd-resolved (#131).
+func TestResolvConfDst(t *testing.T) {
+	etc := t.TempDir()
+	assert.Equal(t, "/etc/resolv.conf", resolvConfDst(etc), "missing")
+	require.NoError(t, os.WriteFile(filepath.Join(etc, "resolv.conf"), nil, 0o644))
+	assert.Equal(t, "/etc/resolv.conf", resolvConfDst(etc), "regular file")
+
+	etc = t.TempDir()
+	require.NoError(t, os.Symlink("../run/systemd/resolve/stub-resolv.conf", filepath.Join(etc, "resolv.conf")))
+	assert.Equal(t, "/run/systemd/resolve/stub-resolv.conf", resolvConfDst(etc), "relative link")
+
+	etc = t.TempDir()
+	require.NoError(t, os.Symlink("/run/resolvconf/resolv.conf", filepath.Join(etc, "resolv.conf")))
+	assert.Equal(t, "/run/resolvconf/resolv.conf", resolvConfDst(etc), "absolute link")
+}
+
 // fakeResolver answers A queries with 192.0.2.7 over UDP on addr,
 // standing in for a loopback stub such as systemd-resolved's. It reports
 // false when it cannot bind (port 53 needs privilege).

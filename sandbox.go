@@ -112,6 +112,23 @@ func within(p, root string) bool {
 	return p == root || strings.HasPrefix(p, root+"/")
 }
 
+// resolvConfDst is where to bind ResolvConf when the host dir etc is
+// bound over /etc. bwrap follows a symlink at the destination, and
+// systemd-resolved hosts link /etc/resolv.conf to a file under /run that
+// is not in the sandbox, so the bind fails (#131). Binding at the link
+// target instead lets bwrap create the missing parents in its root.
+func resolvConfDst(etc string) string {
+	const dst = "/etc/resolv.conf"
+	link, err := os.Readlink(filepath.Join(etc, "resolv.conf"))
+	if err != nil {
+		return dst
+	}
+	if !filepath.IsAbs(link) {
+		link = filepath.Join("/etc", link)
+	}
+	return filepath.Clean(link)
+}
+
 // SandboxArgs returns the full bwrap argv, starting with the bwrap path,
 // that runs cmd with args in dir. It reads only the filesystem (to check
 // sources) and the environment (for EnvKeep and PATH); the same inputs
@@ -237,7 +254,13 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	}
 	// After all binds, so a bind of /etc does not cover it.
 	if s.ResolvConf != "" {
-		argv = append(argv, "--ro-bind", s.ResolvConf, "/etc/resolv.conf")
+		dst := "/etc/resolv.conf"
+		for _, b := range binds {
+			if b.flag != "--tmpfs" && filepath.Clean(b.dst) == "/etc" {
+				dst = resolvConfDst(b.src)
+			}
+		}
+		argv = append(argv, "--ro-bind", s.ResolvConf, dst)
 	}
 	// The agent sees only the env it was given, so host secrets do not
 	// leak in by default.
