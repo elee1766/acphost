@@ -231,6 +231,13 @@ func (h *Host) startAgent() (io.Reader, error) {
 	cmd.Env = append(os.Environ(), h.spec.Env...)
 	cmd.Stderr = os.Stderr // host.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	start := cmd.Start
+	if h.spec.User != nil {
+		var err error
+		if start, err = usernsCommand(cmd, *h.spec.User); err != nil {
+			return nil, err
+		}
+	}
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -239,7 +246,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := start(); err != nil {
 		return nil, err
 	}
 	h.agent, h.agentIn = cmd, in

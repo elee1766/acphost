@@ -108,6 +108,32 @@ spec.Sandbox.Deny = []string{"10.0.0.0/8", "169.254.169.254/32", "fd00::/8"}
   missing `pasta` (`Sandbox.Pasta` or PATH) or `nft` as a permanent
   error.
 
+## User namespace
+
+Set `Spec.User` to run the agent as another uid/gid inside a user
+namespace. Ids written by the agent show up outside as `MapUID` and
+`MapGID`. The host, the session dir and `acp.sock` stay outside, owned by
+the host user.
+
+```go
+spec.User = &acphost.User{UID: 1000, GID: 1000, MapUID: 100000, MapGID: 2000, Groups: []int{2000}}
+```
+
+One-time setup: `newuidmap` and `newgidmap` (package `uidmap` or
+`shadow`) on PATH, and an entry for the host user in `/etc/subuid` and
+`/etc/subgid`, for example `jobshop:100000:65536`. Mapping to the host
+user's own uid and a gid it holds needs no entry.
+
+Sharing a worktree between the host user and the agent: make a group
+both belong to (the host user holds it, the agent gets it via `Groups`
+or `MapGID`), `chgrp -R` the worktree to it, and set the setgid bit and
+group write on its directories (`chmod -R g+rwX` and
+`find . -type d -exec chmod g+s {} +`) so new files keep the group. Git
+also needs `core.sharedRepository=group`.
+
+With `Spec.Sandbox` too, bwrap runs inside the namespace and nests its
+own. Map failures are permanent errors carrying the helper's stderr.
+
 ## Develop
 
 ```
