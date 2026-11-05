@@ -57,6 +57,7 @@ func (c Cgroup) limits() []cgroupLimit {
 // checkCgroup validates c against the cgroup tree. Errors are permanent:
 // a retry cannot fix a bad value or a missing controller.
 func checkCgroup(c Cgroup) error {
+	trace("cgroupfs:check")
 	if !filepath.IsAbs(c.Parent) {
 		return Permanentf("cgroup parent %q is not absolute", c.Parent)
 	}
@@ -123,6 +124,7 @@ func validBytes(s string) bool {
 // returns the new cgroup directory. The session name must be a single
 // path element so nothing is written outside Parent.
 func prepareCgroup(c Cgroup, session string) (string, error) {
+	trace("cgroupfs:prepare")
 	if session == "" || session == "." || session == ".." || strings.ContainsAny(session, "/\x00") {
 		return "", Permanentf("cgroup: bad session name %q", session)
 	}
@@ -144,6 +146,7 @@ func prepareCgroup(c Cgroup, session string) (string, error) {
 // removeCgroup removes a cgroup made by prepareCgroup. cgroupfs refuses
 // rmdir while processes remain, so this only succeeds once they exit.
 func removeCgroup(dir string) error {
+	trace("cgroupfs:remove")
 	err := os.Remove(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -172,6 +175,7 @@ func DelegatedCgroup() (DelegatedInfo, error) {
 // delegatedCgroup is DelegatedCgroup with the proc file and cgroupfs root
 // injectable for tests.
 func delegatedCgroup(procFile, root string) (DelegatedInfo, error) {
+	trace("cgroupfs:delegated")
 	b, err := os.ReadFile(procFile)
 	if err != nil {
 		return DelegatedInfo{}, fmt.Errorf("cgroup: %w", err)

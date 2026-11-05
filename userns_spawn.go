@@ -154,6 +154,7 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, err error) {
 			args []string
 		}{{"newuidmap", uidArgs}, {"newgidmap", gidArgs}} {
 			var stderr bytes.Buffer
+			trace("run:" + m.tool)
 			c := exec.Command(m.tool, append([]string{pid}, m.args...)...)
 			c.Stderr = &stderr
 			if err := c.Run(); err != nil {

@@ -39,7 +39,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" $P
           echo $$ | sudo tee $P/test/cgroup.procs >/dev/null
           set -o pipefail
-          ACPHOST_TEST_CGROUP=$P go test -race -count=1 -v -run 'TestCgroup' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
+          ACPHOST_TEST_CGROUP=$P go test -race -count=1 -v -run 'TestCgroup|TestMatrix|TestNoFields' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
       - run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:

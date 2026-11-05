@@ -75,6 +75,7 @@ func ParseSubIDs(r io.Reader, name string, uid int) ([]Range, error) {
 
 // readSubIDs parses path for uid. A missing file means no ranges.
 func readSubIDs(path string, uid int) ([]Range, error) {
+	trace("subid:" + path)
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

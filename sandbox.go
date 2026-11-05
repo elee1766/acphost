@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -124,7 +123,7 @@ func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, er
 	}
 	bwrap := s.Bwrap
 	if bwrap == "" {
-		p, err := exec.LookPath("bwrap")
+		p, err := lookPath("bwrap")
 		if err != nil {
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
@@ -220,7 +219,7 @@ func pastaPrefix(s Sandbox) ([]string, error) {
 	}
 	p := s.Pasta
 	if p == "" {
-		if p, err = exec.LookPath("pasta"); err != nil {
+		if p, err = lookPath("pasta"); err != nil {
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
 	}
@@ -230,11 +229,11 @@ func pastaPrefix(s Sandbox) ([]string, error) {
 	if deny == "" {
 		return argv, nil
 	}
-	sh, err := exec.LookPath("sh")
+	sh, err := lookPath("sh")
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	nft, err := exec.LookPath("nft")
+	nft, err := lookPath("nft")
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: deny: %w", err)
 	}
