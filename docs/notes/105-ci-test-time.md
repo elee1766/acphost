@@ -47,3 +47,5 @@ failed: hosts in one test process share the subreaper and signal
 handling. Instead the grace is an internal option (`killGrace`, 5s by
 default) and those two tests set 200ms. The SIGKILL path they check is
 the same; the matrix itself is unchanged.
+
+Result: go job 43s on PR #107 (run 42031328351), was 1m30s-1m55s.
