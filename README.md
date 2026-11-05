@@ -352,6 +352,8 @@ if err == nil && ok && iso.Cgroup != nil {
 - `network`: `mode` (`host`, `none`, `pasta`), the `deny` CIDRs loaded
   and `pasta_started`.
 - `bwrap`: the full argv run, including any pasta prefix.
+- `pdeath_helper`: with pasta, the helper argv run in front of pasta
+  and bwrap, so the chain is `pdeath_helper` then `bwrap`.
 
 Unused parts are omitted. A host with no isolation writes `{}`.
 
@@ -425,6 +427,13 @@ go test -run TestIsolationTwoSubIDSessions -v .
 CI runs it. Details in `docs/notes/67-isolation-e2e.md`.
 
 ## Release notes
+
+v0.8.0 (2026-11-05): typed spawn failures and the pdeath helper in
+isolation.json. `Protocol` stays 1. Details in
+`docs/notes/106-release-v0.8.0.md`.
+
+- `ReasonSpawnFailed`, `Exit.Error`, `SpawnError` (#100).
+- `Isolation.PdeathHelper` (#101).
 
 v0.7.0 (2026-11-05): journal compression with a seq index, and session
 name and socket path checks. `Protocol` stays 1. Details in
