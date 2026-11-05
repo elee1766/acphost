@@ -126,3 +126,38 @@ func TestCgroupKillEscapedGrandchild(t *testing.T) {
 	assert.Equal(t, "controller requested stop", ex.Reason)
 	assert.NoDirExists(t, filepath.Join(parent, "s1"))
 }
+
+// TestCgroupSetupDelegation runs SetupDelegation on a fresh empty cgroup
+// under the test parent, moving this test process into its controller
+// leaf, then runs a session under the returned parent. The process is
+// moved back afterwards.
+func TestCgroupSetupDelegation(t *testing.T) {
+	parent := needCgroup(t)
+	orig, err := DelegatedCgroup()
+	require.NoError(t, err)
+	own := filepath.Join(parent, fmt.Sprintf("deleg-%d", time.Now().UnixNano()))
+	require.NoError(t, os.Mkdir(own, 0o755))
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(orig.Path, "cgroup.procs"), []byte(fmt.Sprint(os.Getpid())), 0)
+		for _, d := range []string{"sessions", "controller", ""} {
+			_ = os.Remove(filepath.Join(own, d))
+		}
+	})
+	sessions, err := SetupDelegation(own, []string{"memory", "pids"})
+	if err != nil && strings.Contains(err.Error(), "cgroup.procs") {
+		t.Skipf("cannot move into %s: %v", own, err)
+	}
+	require.NoError(t, err)
+	again, err := SetupDelegation(own, []string{"memory", "pids"})
+	require.NoError(t, err, "repeat call")
+	assert.Equal(t, sessions, again)
+
+	dir := t.TempDir()
+	s := cgroupSpec(t, dir, sessions, "grep -q sessions/s1 /proc/self/cgroup || exit 9\nexit 3\n", Cgroup{PidsMax: 64, MemoryMax: "268435456"})
+	require.NoError(t, CheckSpawn(s, false))
+	require.NoError(t, WriteSpec(dir, s))
+	require.NoError(t, Main(dir))
+	ex, _ := ReadExit(dir)
+	assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, ex)
+	assert.NoDirExists(t, filepath.Join(sessions, "s1"))
+}
