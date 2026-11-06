@@ -37,10 +37,39 @@ to run agent sessions that survive controller restarts.
 go get github.com/elee1766/acphost
 ```
 
-Packages are under `pkg/`: the host is `pkg/acphost`, isolation is
-`pkg/proc`, `pkg/sandbox`, `pkg/cgroup` and `pkg/userns`. Upgrading from
-the root-package layout (v0.11 and earlier):
-`docs/notes/164-pkg-layout.md`. Upgrading from v0.3:
+Packages are under `pkg/`:
+
+| package | what |
+|---|---|
+| `pkg/acphost` | the ACP host: spec, `Main`, `Connect`, journal, preflight |
+| `pkg/proc` | run a command with isolation, attached or detached; `MaybeChild` |
+| `pkg/sandbox` | bubblewrap and pasta: `Sandbox`, `Mount`, `Overlay`, `DNS`, `Args` |
+| `pkg/cgroup` | cgroup v2: `Cgroup`, `Stats`, `Delegated`, `SetupDelegation` |
+| `pkg/userns` | user namespaces and subids: `User`, `AllocSubIDs` |
+| `pkg/acphosttest` | an in-process host for tests |
+| `cmd/acphost` | the `acphost` CLI |
+
+The CLI: `go install github.com/elee1766/acphost/cmd/acphost@latest`.
+
+### Upgrading to v0.15
+
+From v0.11 or earlier (root package `github.com/elee1766/acphost`):
+
+1. Change import paths: the root package is
+   `github.com/elee1766/acphost/pkg/acphost`, and `proc`, `sandbox`,
+   `cgroup`, `userns` and `acphosttest` are under `pkg/`
+   (`docs/notes/164-pkg-layout.md`, v0.13).
+2. Use the isolation packages instead of the root names, removed in
+   #160 (v0.15): `acphost.Sandbox` is `sandbox.Sandbox`, `acphost.Cgroup`
+   is `cgroup.Cgroup`, `acphost.User` is `userns.User`,
+   `acphost.DelegatedCgroup` is `cgroup.Delegated`. Full table:
+   `docs/notes/160-remove-aliases.md`.
+3. Call `proc.MaybeChild()` first in `main` (and in `TestMain`) when
+   any spec uses `user`, pasta networking, `join` or detached processes
+   (`docs/notes/157-maybechild.md`).
+
+The JSON spec and `Protocol` did not change, so a v0.15 client talks to
+hosts started by older versions. Upgrading from v0.3:
 `docs/notes/68-upgrade-v0.3-v0.6.md`.
 
 ## Quick start
@@ -134,6 +163,25 @@ spec.Sandbox = &sandbox.Sandbox{
   `CheckSpawn` reports a missing bwrap, a missing mount source or a Dir
   outside RW as a permanent error. `sandbox.Args` returns the argv
   without running it.
+
+### Overlays
+
+`Sandbox.Overlay` merges host dirs onto one path with bwrap's
+unprivileged overlays (bwrap 0.10+). Layers are lowest first. Mode `ro`
+(default) is read-only, `tmp` takes writes and drops them, `persist`
+writes to `Upper` (with an empty `Work` on the same filesystem).
+
+```go
+spec.Sandbox.Overlay = []sandbox.Overlay{{
+	Dst:    "/opt/tools",
+	Layers: []string{"/srv/tools/base", "/srv/tools/extra"},
+	Mode:   "tmp",
+}}
+```
+
+bwrap reads layers from the host, so an overlay cannot be a layer of
+another. Details in `docs/notes/163-sandbox-overlay.md`; the example is
+`ExampleOverlay` in `pkg/sandbox`.
 
 ## pasta network
 
@@ -341,6 +389,107 @@ When the cgroup's OOM killer killed something during the session,
 `Exit.Reason` is `cgroup.ReasonOOM` (`"oom"`) instead of the usual
 exit or stop reason. Kills from before the session started are not
 counted. Details in `docs/notes/59-oom-reason.md`.
+
+## Joining namespaces
+
+`Spec.Join` maps a namespace type (`user`, `mnt`, `pid`, `net`, `ipc`,
+`uts`, `cgroup`) to a namespace file to join instead of creating one.
+util-linux `nsenter` runs in front of the agent (or bwrap), user first
+and mnt last. `Pin` creates namespaces and keeps them alive in a holder
+process, so several sessions can share one:
+
+```go
+pinned, err := acphost.Pin("net") // as non-root, adds a user namespace
+if err != nil { /* ... */ }
+defer pinned.Close()
+spec.Join = map[string]string{"user": pinned.Paths["user"], "net": pinned.Paths["net"]}
+err = acphost.CheckSpawn(spec, false) // checks each path's type and owner
+```
+
+- Join with `Spec.User` is refused; join a user namespace that already
+  maps the ids. `join.net` with sandbox network `none` or `pasta` is
+  refused.
+- As non-root, joining other types needs `join.user` with a namespace
+  you own.
+- `isolation.json` records each joined `type:[inode]`; `JoinPlan(spec)`
+  lists the joins for a dry run.
+
+Details in `docs/notes/166-join-namespaces.md`; the example is
+`ExamplePin` in `pkg/acphost`.
+
+## Running a command: proc
+
+`pkg/proc` runs any command with the isolation the host gives agents
+(sandbox, cgroup, user namespace, joins), without ACP, a socket or a
+journal. Call `proc.MaybeChild()` first in `main`: the user namespace,
+pasta, pin and supervisor helpers re-exec the calling binary and
+dispatch on argv[0] (`docs/notes/157-maybechild.md`).
+
+`proc.Start` is attached: the command dies with the caller and with
+`ctx`, and `Wait` cleans up its cgroup.
+
+```go
+p, err := proc.Start(ctx, proc.Spec{
+	Command: "make", Args: []string{"test"}, Dir: workDir,
+	Sandbox: sb, Cgroup: cg, Name: "build-1", // Name names the cgroup
+}, proc.Stdout(os.Stdout), proc.Stderr(os.Stderr))
+if err != nil { /* setup failed before the command ran */ }
+ex, err := p.Wait() // ExitCode, Signal, SetupError, OOMKill, Cgroup stats
+```
+
+`proc.StartDetached(dir, spec, grace)` runs the command under a
+supervisor (this binary re-exec'd in its own session) that outlives the
+caller. It writes `supervisor.pid`, `isolation.json`, `exit.json` and
+`output.log` in `dir` and holds `supervisor.lock` while it runs.
+`proc.Open(dir)` finds it again after a restart:
+
+```go
+d, err := proc.Open(dir)
+if err == nil && d.Running() {
+	_ = d.Stop() // SIGTERM, then SIGKILL after grace
+}
+ex, err := d.Wait(ctx) // blocks on the lock, returns exit.json
+```
+
+The ACP host still runs its own detached process (`acphost.Main`).
+Details in `docs/notes/158-proc-start.md` and
+`docs/notes/159-proc-detached.md`; examples are `ExampleStart` and
+`ExampleStartDetached` in `pkg/proc`.
+
+## CLI
+
+`acphost` runs a command or a host by hand, to debug isolation without
+jobshop:
+
+```sh
+acphost run  -c sandbox.yaml [--dir DIR] -- CMD ARGS...
+acphost host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
+```
+
+- `run` starts one command with `proc.Start`, stdio passed through, and
+  exits with its status (128+n for a signal, 125 for a setup failure,
+  2 for a usage or config error).
+- `host` writes `spec.json` into SESSIONDIR and runs `acphost.Main` in
+  the foreground, as jobshop spawns it, and prints the socket path.
+- Flags: `--network host|none|pasta`, `--ro SRC[:DST]`, `--rw SRC[:DST]`,
+  `--join TYPE=PATH`, `--print` (bwrap/pasta argv, uid maps, join plan;
+  runs nothing), `--check` (CheckSpawn and Preflight), `-v` (isolation
+  record after the run).
+
+The config is YAML (or JSON) with `sandbox`, `user`, `cgroup`, `env` and
+`join`, using the spec's JSON keys, so a jobshop section pastes over.
+Unknown keys are an error.
+
+```yaml
+sandbox:
+  ro: [/nix, /etc]
+  rw: [/home/me/work]
+  network: none
+  env_keep: [PATH, HOME]
+cgroup: {parent: /sys/fs/cgroup/acphost, memory_max: 2G, pids_max: 512}
+```
+
+More configs in `docs/notes/165-cli.md`.
 
 ## Preflight
 
