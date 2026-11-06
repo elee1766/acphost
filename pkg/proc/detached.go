@@ -136,18 +136,22 @@ func (d *Detached) Wait(ctx context.Context) (Exit, error) {
 	if err != nil {
 		return Exit{}, err
 	}
-	defer func() { _ = f.Close() }()
+	// The goroutine owns f: closing it here while the flock blocks would
+	// race with its Fd and, once closed, make the flock fail with EBADF.
+	// Closing does not cancel a blocked flock anyway, so after ctx ends
+	// the goroutine stays until the supervisor exits.
 	done := make(chan error, 1)
-	go func() { done <- unix.Flock(int(f.Fd()), unix.LOCK_SH) }()
+	go func() {
+		err := unix.Flock(int(f.Fd()), unix.LOCK_SH)
+		_ = f.Close() // releases the shared lock
+		done <- err
+	}()
 	select {
 	case err := <-done:
 		if err != nil {
 			return Exit{}, err
 		}
-		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
 	case <-ctx.Done():
-		// Closing f does not cancel the flock, so the goroutine ends
-		// when the supervisor does.
 		return Exit{}, ctx.Err()
 	}
 	ex, ok := d.Exit()

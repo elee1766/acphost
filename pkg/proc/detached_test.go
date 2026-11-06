@@ -51,6 +51,46 @@ func TestDetachedStop(t *testing.T) {
 	assert.Equal(t, "terminated", ex.Signal)
 }
 
+// Wait returns on ctx while the lock is held without racing its lock
+// goroutine (#227), and a later Wait still blocks until the release.
+func TestDetachedWaitCtxEndsFirst(t *testing.T) {
+	dir := t.TempDir()
+	sup, err := proc.Supervise(dir)
+	require.NoError(t, err)
+	d, err := proc.Open(dir)
+	require.NoError(t, err)
+	for range 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		_, err = d.Wait(ctx)
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	}
+	require.True(t, d.Running())
+	type result struct {
+		ex  proc.Exit
+		err error
+	}
+	got := make(chan result, 1)
+	go func() {
+		ex, err := d.Wait(context.Background())
+		got <- result{ex, err}
+	}()
+	select {
+	case r := <-got:
+		t.Fatalf("Wait returned while the lock was held: %+v", r)
+	case <-time.After(50 * time.Millisecond):
+	}
+	require.NoError(t, sup.WriteExit(proc.Exit{ExitCode: 3}))
+	require.NoError(t, sup.Close())
+	select {
+	case r := <-got:
+		require.NoError(t, r.err)
+		assert.Equal(t, proc.Exit{ExitCode: 3}, r.ex)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait did not return after the lock was released")
+	}
+}
+
 // The command survives its caller dying, and Open from another process
 // reports its exit.
 func TestDetachedSurvivesCaller(t *testing.T) {
