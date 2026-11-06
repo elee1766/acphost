@@ -9,14 +9,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Follow intervals. With inotify the poll is only a safety net for a
-// missed event; without it the follower polls as it always did.
-var (
-	followSafetyPoll = 5 * time.Second
-	followFallback   = 200 * time.Millisecond
-	// followInotify is false in tests that force the poll fallback.
-	followInotify = true
-)
+// followOpts holds the follow intervals. With inotify the poll is only a
+// safety net for a missed event; without it the follower polls every
+// fallback. Tests pass their own per call instead of changing package
+// state, which raced with running followers under -race (#179).
+type followOpts struct {
+	safetyPoll time.Duration
+	fallback   time.Duration
+	noInotify  bool // force the poll fallback
+}
+
+func defaultFollowOpts() followOpts {
+	return followOpts{safetyPoll: 5 * time.Second, fallback: 200 * time.Millisecond}
+}
 
 // dirWatch wakes on any write, create, rename or delete in one directory.
 // The journal and its compressed part live there, so a wake on any of
@@ -66,10 +71,9 @@ func (w *dirWatch) Close() { _ = w.f.Close() }
 // followWaiter returns a channel that fires when the journal may have
 // grown, and a stop func. It falls back to the plain poll if inotify
 // cannot be set up.
-func followWaiter(path string) (wait func() <-chan time.Time, wake <-chan struct{}, stop func()) {
-	// Read the knobs once, so a follower never races a test changing them.
-	safety, fallback := followSafetyPoll, followFallback
-	if followInotify {
+func followWaiter(path string, o followOpts) (wait func() <-chan time.Time, wake <-chan struct{}, stop func()) {
+	safety, fallback := o.safetyPoll, o.fallback
+	if !o.noInotify {
 		if w, err := newDirWatch(filepath.Dir(path)); err == nil {
 			return func() <-chan time.Time { return time.After(safety) }, w.wake, w.Close
 		}
@@ -82,7 +86,11 @@ func followWaiter(path string) (wait func() <-chan time.Time, wake <-chan struct
 // directory, with a slow poll as a safety net, or polls every 200 ms if
 // inotify is unavailable.
 func FollowJournal(ctx context.Context, path string, off int64, fn func(Frame)) error {
-	tick, wake, stop := followWaiter(path)
+	return followJournal(ctx, path, off, fn, defaultFollowOpts())
+}
+
+func followJournal(ctx context.Context, path string, off int64, fn func(Frame), o followOpts) error {
+	tick, wake, stop := followWaiter(path, o)
 	defer stop()
 	for {
 		var err error

@@ -15,7 +15,7 @@ import (
 
 // followOnce starts a follower on an empty journal, appends one line, and
 // returns how long it took to arrive.
-func followOnce(t *testing.T) time.Duration {
+func followOnce(t *testing.T, o followOpts) time.Duration {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), JournalFile)
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
@@ -24,9 +24,8 @@ func followOnce(t *testing.T) time.Duration {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = FollowJournal(ctx, path, 0, func(Frame) { got <- struct{}{} })
+		_ = followJournal(ctx, path, 0, func(Frame) { got <- struct{}{} }, o)
 	}()
-	// Wait for the follower to exit before the caller's cleanup resets knobs.
 	defer func() { cancel(); <-done }()
 	time.Sleep(50 * time.Millisecond) // let the first read and watch run
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -44,25 +43,23 @@ func followOnce(t *testing.T) time.Duration {
 }
 
 func TestFollowJournalInotifyLatency(t *testing.T) {
-	old := followSafetyPoll
-	followSafetyPoll = time.Hour // only inotify can deliver in time
-	t.Cleanup(func() { followSafetyPoll = old })
-	if d := followOnce(t); d > 100*time.Millisecond {
+	o := defaultFollowOpts()
+	o.safetyPoll = time.Hour // only inotify can deliver in time
+	if d := followOnce(t, o); d > 100*time.Millisecond {
 		t.Fatalf("frame took %v, want well under 200ms", d)
 	}
 }
 
 func TestFollowJournalPollFallback(t *testing.T) {
-	followInotify = false
-	t.Cleanup(func() { followInotify = true })
-	followOnce(t)
+	o := defaultFollowOpts()
+	o.noInotify = true
+	followOnce(t, o)
 }
 
 func TestFollowJournalRename(t *testing.T) {
 	// A rename (the journal replaced) wakes the follower too.
-	old := followSafetyPoll
-	followSafetyPoll = time.Hour
-	t.Cleanup(func() { followSafetyPoll = old })
+	o := defaultFollowOpts()
+	o.safetyPoll = time.Hour
 	dir := t.TempDir()
 	path := filepath.Join(dir, JournalFile)
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
@@ -71,7 +68,7 @@ func TestFollowJournalRename(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = FollowJournal(ctx, path, 0, func(f Frame) { got <- f.Seq })
+		_ = followJournal(ctx, path, 0, func(f Frame) { got <- f.Seq }, o)
 	}()
 	defer func() { cancel(); <-done }()
 	time.Sleep(50 * time.Millisecond)
@@ -92,8 +89,8 @@ func TestFollowJournalRename(t *testing.T) {
 func BenchmarkFollowIdle(b *testing.B) {
 	for _, mode := range []string{"inotify", "poll"} {
 		b.Run(mode, func(b *testing.B) {
-			followInotify = mode == "inotify"
-			defer func() { followInotify = true }()
+			o := defaultFollowOpts()
+			o.noInotify = mode != "inotify"
 			var wg sync.WaitGroup
 			for range b.N {
 				dir := b.TempDir()
@@ -105,7 +102,7 @@ func BenchmarkFollowIdle(b *testing.B) {
 					_ = os.MkdirAll(filepath.Dir(p), 0o700)
 					_ = os.WriteFile(p, nil, 0o600)
 					paths = append(paths, p)
-					wg.Go(func() { _ = FollowJournal(ctx, p, 0, func(Frame) { got <- struct{}{} }) })
+					wg.Go(func() { _ = followJournal(ctx, p, 0, func(Frame) { got <- struct{}{} }, o) })
 				}
 				time.Sleep(100 * time.Millisecond)
 				r0 := cpu()
