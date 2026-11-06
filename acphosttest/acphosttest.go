@@ -1,6 +1,10 @@
 // Package acphosttest runs an acphost host in the test process, so a test
 // that needs a live host does not pay for spawning a host binary.
 //
+// A test using a user namespace or network pasta needs a TestMain that
+// calls proc.MaybeChild first: the host re-execs the test binary as a
+// helper. Without it the spawn fails with proc.ErrNoMaybeChild.
+//
 // Exit semantics:
 //   - The host runs acphost.Main(dir) in a goroutine until the agent exits.
 //     When the agent exits by itself, Main returns, Done is closed and
