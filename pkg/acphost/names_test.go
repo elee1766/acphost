@@ -59,7 +59,7 @@ func TestSessionNames(t *testing.T) {
 
 			// The cgroup dir is <parent>/<session>.
 			parent := t.TempDir()
-			cg, _, err := cgroup.Prepare(Cgroup{Parent: parent}, tc.session)
+			cg, _, err := cgroup.Prepare(cgroup.Cgroup{Parent: parent}, tc.session)
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Join(parent, tc.session), cg)
 			st, err := os.Stat(cg)

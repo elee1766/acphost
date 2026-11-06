@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/elee1766/acphost/pkg/cgroup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +13,7 @@ import (
 func TestCheckSpawnCgroupController(t *testing.T) {
 	parent := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(parent, "cgroup.subtree_control"), []byte("cpu\n"), 0o644))
-	err := CheckSpawn(Spec{Dir: t.TempDir(), Command: "x", Cgroup: &Cgroup{Parent: parent, PidsMax: 1}}, false)
+	err := CheckSpawn(Spec{Dir: t.TempDir(), Command: "x", Cgroup: &cgroup.Cgroup{Parent: parent, PidsMax: 1}}, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"pids"`)
 }

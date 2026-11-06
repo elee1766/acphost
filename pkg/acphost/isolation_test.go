@@ -44,14 +44,14 @@ func TestIsolationEmptyRecord(t *testing.T) {
 
 func TestSandboxArgsNetworkApplied(t *testing.T) {
 	tmp := t.TempDir()
-	base := Sandbox{Bwrap: "/bin/bwrap", Pasta: "/bin/pasta", RW: []Mount{{Src: tmp}}}
+	base := sandbox.Sandbox{Bwrap: "/bin/bwrap", Pasta: "/bin/pasta", RW: []sandbox.Mount{{Src: tmp}}}
 	for _, tc := range []struct{ network, mode string }{{"", "host"}, {"host", "host"}, {"none", "none"}, {"pasta", "pasta"}} {
 		s := base
 		s.Network = tc.network
 		argv, net, err := sandbox.BuildArgs(s, "agent", nil, tmp)
 		require.NoError(t, err, tc.network)
 		assert.Equal(t, &NetworkApplied{Mode: tc.mode}, net, tc.network)
-		want, _ := SandboxArgs(s, "agent", nil, tmp)
+		want, _ := sandbox.Args(s, "agent", nil, tmp)
 		assert.Equal(t, want, argv)
 	}
 	if _, err := exec.LookPath("nft"); err == nil {

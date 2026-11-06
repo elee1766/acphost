@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elee1766/acphost/pkg/userns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,8 +34,8 @@ func needUserns(t *testing.T) {
 // newuidmap allows without a subuid entry, so the test needs no host setup
 // beyond the helpers. Test dirs are private to the caller, so mapping to
 // a subordinate id would leave the agent unable to reach them.
-func testUser() User {
-	return User{UID: 1000, GID: 1000, MapUID: os.Geteuid(), MapGID: os.Getegid()}
+func testUser() userns.User {
+	return userns.User{UID: 1000, GID: 1000, MapUID: os.Geteuid(), MapGID: os.Getegid()}
 }
 
 func usernsSpecs(t *testing.T, script string) map[string]func(dir string) Spec {
