@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3](https://github.com/elee1766/acphost/compare/v0.11.2...v0.11.3) (2026-11-06)
+
+
+### Features
+
+* **proc:** add proc.Start and run the host agent through it ([#158](https://github.com/elee1766/acphost/issues/158)) ([#172](https://github.com/elee1766/acphost/issues/172)) ([b3d8b36](https://github.com/elee1766/acphost/commit/b3d8b36af72fcc9564efdfc012620ba253f5734c))
+
 ## [0.11.2](https://github.com/elee1766/acphost/compare/v0.11.1...v0.11.2) (2026-11-06)
 
 
