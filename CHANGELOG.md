@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/elee1766/acphost/compare/v0.16.1...v0.17.0) (2026-11-06)
+
+
+### Features
+
+* **acphost:** run the host on proc's detached supervisor ([#210](https://github.com/elee1766/acphost/issues/210)) ([#212](https://github.com/elee1766/acphost/issues/212)) ([c8419f7](https://github.com/elee1766/acphost/commit/c8419f76aad32e78cfcefe80a65e7a70bb939f7e))
+
 ## [0.16.1](https://github.com/elee1766/acphost/compare/v0.16.0...v0.16.1) (2026-11-06)
 
 
