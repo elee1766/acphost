@@ -3,6 +3,7 @@ package acphost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -150,4 +151,69 @@ func TestCgroupDetachedHostExitStats(t *testing.T) {
 	hex, _ := ReadExit(dir)
 	assert.Equal(t, "agent exited", hex.Reason)
 	assert.NoDirExists(t, filepath.Join(parent, s.Session))
+}
+
+// InCgroup starts the host, and the agent it forks without Spec.Cgroup,
+// in the given cgroup instead of the caller's (#223). Named TestCgroup*
+// so the CI cgroup step runs it.
+func TestCgroupDetachedHostInCgroup(t *testing.T) {
+	parent := needCgroup(t)
+	hosts := filepath.Join(parent, "hosts-"+filepath.Base(t.TempDir()))
+	require.NoError(t, os.Mkdir(hosts, 0o755))
+	t.Cleanup(func() {
+		// Wait returns once the lock is released, a moment before the
+		// host process exits (1s under -race: GORACE atexit_sleep_ms).
+		cgroup.WaitEmpty(hosts, 5*time.Second)
+		_ = os.Remove(hosts)
+	})
+
+	dir := t.TempDir()
+	agent := filepath.Join(dir, "agent")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\ncat /proc/self/cgroup >\"$0.cg\"\nexec sleep 600\n"), 0o700))
+	require.NoError(t, WriteSpec(dir, Spec{Protocol: Protocol, Session: "s1", Command: agent, Dir: dir, GCRootDir: dir}))
+	d, err := StartDetached(dir, nil, InCgroup(hosts))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Stop() })
+
+	assert.Equal(t, hosts, procCgroup(t, fmt.Sprintf("/proc/%d/cgroup", d.Pid)), "host")
+	require.Eventually(t, func() bool {
+		b, err := os.ReadFile(agent + ".cg")
+		return err == nil && len(b) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, hosts, procCgroup(t, agent+".cg"), "agent")
+
+	require.NoError(t, d.Stop())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	_, err = d.Wait(ctx)
+	require.NoError(t, err)
+}
+
+// procCgroup reads a /proc/<pid>/cgroup file and returns the v2 cgroup
+// as a path under /sys/fs/cgroup.
+func procCgroup(t *testing.T, file string) string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	require.NoError(t, err)
+	for _, l := range strings.Split(string(b), "\n") {
+		if p, ok := strings.CutPrefix(l, "0::"); ok {
+			return filepath.Join("/sys/fs/cgroup", p)
+		}
+	}
+	t.Fatalf("%s: no cgroup v2 line: %q", file, b)
+	return ""
+}
+
+// A cgroup dir that cannot be opened fails StartDetached before the host
+// starts: no supervisor.pid, no exit.json.
+func TestDetachedHostInCgroupMissing(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, WriteSpec(dir, Spec{Protocol: Protocol, Session: "s1", Command: "/bin/true", Dir: dir, GCRootDir: dir}))
+	missing := filepath.Join(dir, "no-such-cgroup")
+	_, err := StartDetached(dir, nil, InCgroup(missing))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	assert.ErrorContains(t, err, missing)
+	assert.NoFileExists(t, filepath.Join(dir, proc.SupervisorPidFile))
+	assert.NoFileExists(t, filepath.Join(dir, ExitFile))
+	assert.False(t, Alive(dir))
 }

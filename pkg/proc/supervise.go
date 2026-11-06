@@ -49,6 +49,10 @@ type DetachSpec struct {
 	Env []string
 	// Log gets the child's stdout and stderr. Nil discards them.
 	Log *os.File
+	// CgroupDir, if set, is an existing cgroup v2 directory the child
+	// starts in, so its load and everything it forks count there and
+	// not in the caller's cgroup. Empty keeps the caller's cgroup.
+	CgroupDir string
 }
 
 // Detach starts this binary (/proc/self/exe) as s.Argv0 in its own
@@ -59,6 +63,15 @@ type DetachSpec struct {
 func Detach(s DetachSpec) (int, error) {
 	if err := reexec.Check(); err != nil {
 		return 0, err
+	}
+	var cg *os.File
+	if s.CgroupDir != "" {
+		f, err := os.Open(s.CgroupDir)
+		if err != nil {
+			return 0, fmt.Errorf("proc: cgroup: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		cg = f
 	}
 	cfgR, cfgW, err := reexec.ConfigPipe(s.Config)
 	if err != nil {
@@ -85,6 +98,12 @@ func Detach(s DetachSpec) (int, error) {
 	cmd.ExtraFiles = reexec.SetExtraFile(files, detachOutFd, stW)
 	// Own session and no parent-death signal: it outlives the caller.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if cg != nil {
+		// clone3 places the child in the cgroup before it runs, as
+		// Start does for Spec.Cgroup.
+		cmd.SysProcAttr.UseCgroupFD = true
+		cmd.SysProcAttr.CgroupFD = int(cg.Fd())
+	}
 	err = cmd.Start()
 	_ = stW.Close()
 	if err != nil {
