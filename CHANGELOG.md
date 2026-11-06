@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/elee1766/acphost/compare/v0.14.0...v0.15.0) (2026-11-06)
+
+
+### Features
+
+* **userns:** map the caller as ns root so bwrap mounts as the controller ([#162](https://github.com/elee1766/acphost/issues/162)) ([#189](https://github.com/elee1766/acphost/issues/189)) ([632f038](https://github.com/elee1766/acphost/commit/632f038bfc24c3b28b4699d34708e603647a5d63))
+
 ## [0.14.0](https://github.com/elee1766/acphost/compare/v0.13.0...v0.14.0) (2026-11-06)
 
 
