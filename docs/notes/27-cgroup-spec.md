@@ -10,8 +10,8 @@
   Session names must be one path element, so nothing lands outside parent.
 - `DelegatedCgroup` reads the `0::` line of `/proc/self/cgroup`. Writable
   uses access(2) W_OK via `syscall`, so no new dependency.
-- Not yet wired into spawn (follow-up under #26). Protocol stays 1: the
-  field is omitempty and older hosts ignore it.
+- Spawn applies `Spec.Cgroup` (wired in #80, see below). Protocol stays
+  1: the field is omitempty and older hosts ignore it.
 - 2026-11-05 (#80): now wired. `startAgent` (host.go) calls
   `prepareCgroup` and starts the agent with clone3 `CgroupFD`, on the
   plain, bwrap and userns paths alike. `TestCgroupAgentInSessionCgroup`
