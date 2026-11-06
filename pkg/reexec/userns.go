@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -111,6 +112,12 @@ func usernsChild() {
 // os.Args[1:].
 func becomeUser(u UsernsConfig) {
 	fail := failer("userns")
+	// The ambient cap clear and the parent-death signal below are per
+	// thread, and execve keeps the calling thread's creds. Without the
+	// lock the exec can run on another thread that still holds the
+	// ambient CAP_SETUID/CAP_SETGID, and bwrap then refuses to start
+	// ("Unexpected capabilities but not setuid", #204).
+	runtime.LockOSThread()
 	groups := u.Groups
 	if groups == nil {
 		groups = []int{}
