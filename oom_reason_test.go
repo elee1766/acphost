@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/elee1766/acphost/cgroup"
 )
 
 func TestOOMReason(t *testing.T) {
@@ -14,24 +16,24 @@ func TestOOMReason(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	end := func() int64 { return readCgroupStats(dir).OOMKills }
+	end := func() int64 { return cgroup.ReadStats(dir).OOMKills }
 
 	// Missing file: normal reason.
-	start := oomKills(dir)
-	if got := oomReason("agent exited", start, end()); got != "agent exited" {
+	start := cgroup.OOMKills(dir)
+	if got := cgroup.OOMReason("agent exited", start, end()); got != "agent exited" {
 		t.Fatalf("missing file: %q", got)
 	}
 
 	// Count unchanged (an earlier kill does not count): normal reason.
 	write("2")
-	start = oomKills(dir)
-	if got := oomReason("agent exited", start, end()); got != "agent exited" {
+	start = cgroup.OOMKills(dir)
+	if got := cgroup.OOMReason("agent exited", start, end()); got != "agent exited" {
 		t.Fatalf("unchanged: %q", got)
 	}
 
 	// Count rose: ReasonOOM.
 	write("3")
-	if got := oomReason("agent exited", start, end()); got != ReasonOOM {
+	if got := cgroup.OOMReason("agent exited", start, end()); got != ReasonOOM {
 		t.Fatalf("rose: %q, want %q", got, ReasonOOM)
 	}
 }

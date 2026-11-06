@@ -10,6 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/sandbox"
+	"github.com/elee1766/acphost/userns"
 )
 
 // PreflightCheck is the state of one isolation prerequisite.
@@ -101,7 +106,7 @@ func WithDNSCheck(name string) PreflightOption {
 func Preflight(s Spec, opts ...PreflightOption) (PreflightReport, error) {
 	env := preflightEnv{
 		cgroupRoot: "/sys/fs/cgroup",
-		etc:        filepath.Dir(subuidPath),
+		etc:        filepath.Dir(hostenv.SubUIDPath),
 		path:       os.Getenv("PATH"),
 		uid:        os.Geteuid(),
 		privileged: setuidOrCaps,
@@ -164,7 +169,7 @@ func preflight(s Spec, env preflightEnv) (PreflightReport, error) {
 		}
 		// Spawn looks nft up on PATH only when Deny is set (pastaPrefix).
 		if len(s.Sandbox.Deny) > 0 {
-			add("network", "network.nft", preflightBinary("", nftBinary,
+			add("network", "network.nft", preflightBinary("", sandbox.NFTBinary,
 				"install nftables (apt install nftables, dnf install nftables) so nft is on PATH", env))
 		}
 	}
@@ -201,12 +206,7 @@ func preflightCgroupWritable(parent string, env preflightEnv) *failure {
 }
 
 func preflightCgroupControllers(c Cgroup, parent string) *failure {
-	var need []string
-	for _, x := range c.limits() {
-		if !slices.Contains(need, x.controller) {
-			need = append(need, x.controller)
-		}
-	}
+	need := c.Controllers()
 	if len(need) == 0 {
 		return nil
 	}
@@ -216,7 +216,7 @@ func preflightCgroupControllers(c Cgroup, parent string) *failure {
 		return fail(hintSetupDelegation, "parent: %v", err)
 	}
 	enabled := strings.Fields(string(b))
-	avail := readFields(filepath.Join(parent, "cgroup.controllers"))
+	avail := cgroup.ReadFields(filepath.Join(parent, "cgroup.controllers"))
 	var missing, undelegated []string
 	for _, x := range need {
 		if slices.Contains(enabled, x) {
@@ -304,38 +304,38 @@ func preflightSubIDs(u User, kind string, env preflightEnv) ([]Range, *failure) 
 	if pw, err := user.LookupId(who); err == nil {
 		who = pw.Username
 	}
-	rs, err := readSubIDs(file, env.uid)
+	rs, err := userns.ReadSubIDs(file, env.uid)
 	if err != nil {
 		return nil, fail("fix or remove the bad line in "+file+" (format owner:start:count)", "%s: %v", file, err)
 	}
 	n := max(u.MapCount, 1)
 	hint := fmt.Sprintf("as root: usermod %s %d-%d %s", flag, start, start+n-1, who)
 	if u.MapCount > 1 {
-		if err := checkSpan(kind, file, start, n, rs); err != nil {
+		if err := userns.CheckSpan(kind, file, start, n, rs); err != nil {
 			return nil, &failure{reason: err.Error(), hint: hint}
 		}
 	}
 	switch {
-	case kind == "uid" && u.MapUID != env.uid && !inRanges(u.MapUID, rs):
+	case kind == "uid" && u.MapUID != env.uid && !userns.InRanges(u.MapUID, rs):
 		return nil, fail(hint, "user: map_uid %d is not uid %d or in its subuid range (%s)", u.MapUID, env.uid, file)
-	case kind == "gid" && !callerHoldsGID(u.MapGID) && !inRanges(u.MapGID, rs):
+	case kind == "gid" && !callerHoldsGID(u.MapGID) && !userns.InRanges(u.MapGID, rs):
 		return nil, fail(hint, "user: map_gid %d is not held by the caller or in its subgid range (%s)", u.MapGID, file)
 	}
 	return rs, nil
 }
 
 func callerHoldsGID(g int) bool {
-	if g == getegid() {
+	if g == hostenv.Getegid() {
 		return true
 	}
-	gs, err := getgroups()
+	gs, err := hostenv.Getgroups()
 	return err == nil && slices.Contains(gs, g)
 }
 
 // preflightUserMap runs the rest of the spawn checks (groups, duplicate
 // gids) once the subid entries are known good.
 func preflightUserMap(u User, env preflightEnv, subuid, subgid []Range) *failure {
-	_, _, err := userMaps(u, env.uid, filepath.Join(env.etc, "subuid"), filepath.Join(env.etc, "subgid"), subuid, subgid)
+	_, _, err := userns.Maps(u, env.uid, filepath.Join(env.etc, "subuid"), filepath.Join(env.etc, "subgid"), subuid, subgid)
 	if err != nil {
 		return fail("fix spec.user: each group must be held by the caller or in its subgid range, and no outside gid may be mapped twice", "%v", err)
 	}

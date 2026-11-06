@@ -1,4 +1,4 @@
-package acphost
+package cgroup
 
 import (
 	"errors"
@@ -9,13 +9,16 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/elee1766/acphost/internal/trace"
+	"github.com/elee1766/acphost/internal/xerr"
 )
 
 // Cgroup places the agent in a cgroup v2 child of Parent and sets limits
 // on it. Empty strings and a zero PidsMax leave that limit unset.
 type Cgroup struct {
 	// Parent is an absolute path to a delegated cgroup directory, such as
-	// one found with DelegatedCgroup. The session cgroup is made under it.
+	// one found with Delegated. The session cgroup is made under it.
 	Parent string `json:"parent"`
 	// CPUMax is written to cpu.max: "<quota|max> <period>" in microseconds.
 	CPUMax string `json:"cpu_max,omitempty"`
@@ -33,6 +36,18 @@ type Cgroup struct {
 
 // cgroupLimit is one limit file and the controller it needs.
 type cgroupLimit struct{ controller, file, value string }
+
+// Controllers lists the controllers c's limits need, in limit order,
+// without repeats.
+func (c Cgroup) Controllers() []string {
+	var need []string
+	for _, x := range c.limits() {
+		if !slices.Contains(need, x.controller) {
+			need = append(need, x.controller)
+		}
+	}
+	return need
+}
 
 func (c Cgroup) limits() []cgroupLimit {
 	var l []cgroupLimit
@@ -54,32 +69,32 @@ func (c Cgroup) limits() []cgroupLimit {
 	return l
 }
 
-// checkCgroup validates c against the cgroup tree. Errors are permanent:
+// Check validates c against the cgroup tree. Errors are permanent:
 // a retry cannot fix a bad value or a missing controller.
-func checkCgroup(c Cgroup) error {
-	trace("cgroupfs:check")
+func Check(c Cgroup) error {
+	trace.Event("cgroupfs:check")
 	if !filepath.IsAbs(c.Parent) {
-		return Permanentf("cgroup parent %q is not absolute", c.Parent)
+		return xerr.Permanentf("cgroup parent %q is not absolute", c.Parent)
 	}
 	if st, err := os.Stat(c.Parent); err != nil {
-		return Permanentf("cgroup parent: %w", err)
+		return xerr.Permanentf("cgroup parent: %w", err)
 	} else if !st.IsDir() {
-		return Permanentf("cgroup parent %s is not a directory", c.Parent)
+		return xerr.Permanentf("cgroup parent %s is not a directory", c.Parent)
 	}
 	if c.CPUMax != "" && !validCPUMax(c.CPUMax) {
-		return Permanentf("cgroup cpu_max %q: want \"<quota|max> <period>\"", c.CPUMax)
+		return xerr.Permanentf("cgroup cpu_max %q: want \"<quota|max> <period>\"", c.CPUMax)
 	}
 	if c.MemoryMax != "" && !validBytes(c.MemoryMax) {
-		return Permanentf("cgroup memory_max %q: want a byte count or max", c.MemoryMax)
+		return xerr.Permanentf("cgroup memory_max %q: want a byte count or max", c.MemoryMax)
 	}
 	if c.MemoryHigh != "" && !validBytes(c.MemoryHigh) {
-		return Permanentf("cgroup memory_high %q: want a byte count or max", c.MemoryHigh)
+		return xerr.Permanentf("cgroup memory_high %q: want a byte count or max", c.MemoryHigh)
 	}
 	if c.SwapMax != "" && !validBytes(c.SwapMax) {
-		return Permanentf("cgroup swap_max %q: want a byte count or max", c.SwapMax)
+		return xerr.Permanentf("cgroup swap_max %q: want a byte count or max", c.SwapMax)
 	}
 	if c.PidsMax < 0 {
-		return Permanentf("cgroup pids_max %d is negative", c.PidsMax)
+		return xerr.Permanentf("cgroup pids_max %d is negative", c.PidsMax)
 	}
 	l := c.limits()
 	if len(l) == 0 {
@@ -87,12 +102,12 @@ func checkCgroup(c Cgroup) error {
 	}
 	b, err := os.ReadFile(filepath.Join(c.Parent, "cgroup.subtree_control"))
 	if err != nil {
-		return Permanentf("cgroup parent: %w", err)
+		return xerr.Permanentf("cgroup parent: %w", err)
 	}
 	enabled := strings.Fields(string(b))
 	for _, x := range l {
 		if !slices.Contains(enabled, x.controller) {
-			return Permanentf("cgroup %s: controller %q not in %s/cgroup.subtree_control", x.file, x.controller, c.Parent)
+			return xerr.Permanentf("cgroup %s: controller %q not in %s/cgroup.subtree_control", x.file, x.controller, c.Parent)
 		}
 	}
 	return nil
@@ -120,17 +135,17 @@ func validBytes(s string) bool {
 	return err == nil
 }
 
-// prepareCgroup creates <parent>/<session> and writes the set limits. It
+// Prepare creates <parent>/<session> and writes the set limits. It
 // returns the new cgroup directory and the limits written, in order. The session name must be a single
 // path element so nothing is written outside Parent.
-func prepareCgroup(c Cgroup, session string) (string, []LimitApplied, error) {
-	trace("cgroupfs:prepare")
+func Prepare(c Cgroup, session string) (string, []LimitApplied, error) {
+	trace.Event("cgroupfs:prepare")
 	if session == "" || session == "." || session == ".." || strings.ContainsAny(session, "/\x00") {
-		return "", nil, Permanentf("cgroup: bad session name %q", session)
+		return "", nil, xerr.Permanentf("cgroup: bad session name %q", session)
 	}
 	dir := filepath.Join(c.Parent, session)
 	if filepath.Dir(dir) != filepath.Clean(c.Parent) {
-		return "", nil, Permanentf("cgroup: %s escapes %s", dir, c.Parent)
+		return "", nil, xerr.Permanentf("cgroup: %s escapes %s", dir, c.Parent)
 	}
 	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", nil, fmt.Errorf("cgroup: %w", err)
@@ -145,10 +160,10 @@ func prepareCgroup(c Cgroup, session string) (string, []LimitApplied, error) {
 	return dir, applied, nil
 }
 
-// removeCgroup removes a cgroup made by prepareCgroup. cgroupfs refuses
+// Remove removes a cgroup made by Prepare. cgroupfs refuses
 // rmdir while processes remain, so this only succeeds once they exit.
-func removeCgroup(dir string) error {
-	trace("cgroupfs:remove")
+func Remove(dir string) error {
+	trace.Event("cgroupfs:remove")
 	err := os.Remove(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -167,17 +182,17 @@ type DelegatedInfo struct {
 	Controllers []string
 }
 
-// DelegatedCgroup returns this process's cgroup v2 directory. A caller
+// Delegated returns this process's cgroup v2 directory. A caller
 // usually makes a child of it to use as Cgroup.Parent, since a cgroup
 // that holds processes cannot enable controllers for its children.
-func DelegatedCgroup() (DelegatedInfo, error) {
-	return delegatedCgroup("/proc/self/cgroup", "/sys/fs/cgroup")
+func Delegated() (DelegatedInfo, error) {
+	return delegated("/proc/self/cgroup", "/sys/fs/cgroup")
 }
 
-// delegatedCgroup is DelegatedCgroup with the proc file and cgroupfs root
+// delegatedCgroup is Delegated with the proc file and cgroupfs root
 // injectable for tests.
-func delegatedCgroup(procFile, root string) (DelegatedInfo, error) {
-	trace("cgroupfs:delegated")
+func delegated(procFile, root string) (DelegatedInfo, error) {
+	trace.Event("cgroupfs:delegated")
 	b, err := os.ReadFile(procFile)
 	if err != nil {
 		return DelegatedInfo{}, fmt.Errorf("cgroup: %w", err)
@@ -218,14 +233,14 @@ func SetupDelegation(own string, controllers []string) (sessionsParent string, e
 // setupDelegation is SetupDelegation with the pid injectable so tests can
 // run against a temp dir.
 func setupDelegation(own string, pid int, controllers []string) (string, error) {
-	trace("cgroupfs:setup-delegation")
+	trace.Event("cgroupfs:setup-delegation")
 	avail, err := os.ReadFile(filepath.Join(own, "cgroup.controllers"))
 	if err != nil {
-		return "", Permanentf("cgroup: %w", err)
+		return "", xerr.Permanentf("cgroup: %w", err)
 	}
 	for _, c := range controllers {
 		if !slices.Contains(strings.Fields(string(avail)), c) {
-			return "", Permanentf("cgroup: controller %s not in %s", c, filepath.Join(own, "cgroup.controllers"))
+			return "", xerr.Permanentf("cgroup: controller %s not in %s", c, filepath.Join(own, "cgroup.controllers"))
 		}
 	}
 	ctl := filepath.Join(own, "controller")
@@ -233,7 +248,7 @@ func setupDelegation(own string, pid int, controllers []string) (string, error) 
 		return "", err
 	}
 	procs := filepath.Join(ctl, "cgroup.procs")
-	if !slices.Contains(readFields(procs), strconv.Itoa(pid)) {
+	if !slices.Contains(ReadFields(procs), strconv.Itoa(pid)) {
 		if err := writeCgroupFile(procs, strconv.Itoa(pid)); err != nil {
 			return "", err
 		}
@@ -254,7 +269,7 @@ func setupDelegation(own string, pid int, controllers []string) (string, error) 
 // enableControllers writes only the controllers not yet in
 // dir/cgroup.subtree_control, so a repeat call writes nothing.
 func enableControllers(dir string, controllers []string) error {
-	have := readFields(filepath.Join(dir, "cgroup.subtree_control"))
+	have := ReadFields(filepath.Join(dir, "cgroup.subtree_control"))
 	var add []string
 	for _, c := range controllers {
 		if !slices.Contains(have, c) {
@@ -267,7 +282,9 @@ func enableControllers(dir string, controllers []string) error {
 	return writeCgroupFile(filepath.Join(dir, "cgroup.subtree_control"), strings.Join(add, " "))
 }
 
-func readFields(file string) []string {
+// ReadFields returns the whitespace-separated fields of file, nil if
+// it cannot be read.
+func ReadFields(file string) []string {
 	b, _ := os.ReadFile(file)
 	return strings.Fields(string(b))
 }
@@ -275,7 +292,7 @@ func readFields(file string) []string {
 func mkdirCgroup(dir string) error {
 	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
 		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			return Permanentf("cgroup: %w", err)
+			return xerr.Permanentf("cgroup: %w", err)
 		}
 		return fmt.Errorf("cgroup: %w", err)
 	}
@@ -287,9 +304,15 @@ func mkdirCgroup(dir string) error {
 func writeCgroupFile(file, value string) error {
 	if err := os.WriteFile(file, []byte(value), 0o644); err != nil {
 		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			return Permanentf("cgroup %s: %w", file, err)
+			return xerr.Permanentf("cgroup %s: %w", file, err)
 		}
 		return fmt.Errorf("cgroup %s: %w", file, err)
 	}
 	return nil
+}
+
+// LimitApplied is one cgroup limit file and the value written to it.
+type LimitApplied struct {
+	File  string `json:"file"`
+	Value string `json:"value"`
 }

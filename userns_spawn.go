@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/userns"
 	"golang.org/x/sys/unix"
 )
 
@@ -124,15 +126,15 @@ func userFromEnv(s string) *User {
 // It also returns the map lines it will write.
 func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserApplied, err error) {
 	self := os.Geteuid()
-	subuid, err := readSubIDs(subuidPath, self)
+	subuid, err := userns.ReadSubIDs(hostenv.SubUIDPath, self)
 	if err != nil {
-		return nil, nil, Permanentf("user: %s: %w", subuidPath, err)
+		return nil, nil, Permanentf("user: %s: %w", hostenv.SubUIDPath, err)
 	}
-	subgid, err := readSubIDs(subgidPath, self)
+	subgid, err := userns.ReadSubIDs(hostenv.SubGIDPath, self)
 	if err != nil {
-		return nil, nil, Permanentf("user: %s: %w", subgidPath, err)
+		return nil, nil, Permanentf("user: %s: %w", hostenv.SubGIDPath, err)
 	}
-	uidArgs, gidArgs, err := userMaps(u, self, subuidPath, subgidPath, subuid, subgid)
+	uidArgs, gidArgs, err := userns.Maps(u, self, hostenv.SubUIDPath, hostenv.SubGIDPath, subuid, subgid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -165,7 +167,7 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserAppl
 			args []string
 		}{{"newuidmap", uidArgs}, {"newgidmap", gidArgs}} {
 			var stderr bytes.Buffer
-			trace("run:" + m.tool)
+			traceEvent("run:" + m.tool)
 			c := exec.Command(m.tool, append([]string{pid}, m.args...)...)
 			c.Stderr = &stderr
 			if err := c.Run(); err != nil {

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/elee1766/acphost/internal/hostenv"
 )
 
 type preflightFixture struct {
@@ -19,10 +21,10 @@ type preflightFixture struct {
 // caller, and the helper binaries on PATH.
 func newPreflightFixture(t *testing.T) preflightFixture {
 	t.Helper()
-	oldE, oldG := getegid, getgroups
-	t.Cleanup(func() { getegid, getgroups = oldE, oldG })
-	getegid = func() int { return 4242 }
-	getgroups = func() ([]int, error) { return []int{4242}, nil }
+	oldE, oldG := hostenv.Getegid, hostenv.Getgroups
+	t.Cleanup(func() { hostenv.Getegid, hostenv.Getgroups = oldE, oldG })
+	hostenv.Getegid = func() int { return 4242 }
+	hostenv.Getgroups = func() ([]int, error) { return []int{4242}, nil }
 
 	root := t.TempDir()
 	cg := filepath.Join(root, "cgroup")

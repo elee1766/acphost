@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/sandbox"
 	"golang.org/x/sys/unix"
 )
 
@@ -208,7 +210,7 @@ func (h *Host) run() error {
 	agentOut, err := h.startAgent()
 	if err != nil {
 		if h.cgroup != "" {
-			_ = removeCgroup(h.cgroup)
+			_ = cgroup.Remove(h.cgroup)
 		}
 		ex := Exit{Reason: ReasonSpawnFailed, ExitCode: -1, Error: err.Error()}
 		h.writeExit(ex)
@@ -243,7 +245,7 @@ func (h *Host) run() error {
 	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
 	if h.cgroup != "" {
 		h.killAll()
-		if !waitCgroupEmpty(h.cgroup, 5*time.Second) {
+		if !cgroup.WaitEmpty(h.cgroup, 5*time.Second) {
 			h.log.Warn("cgroup still populated", "cgroup", h.cgroup)
 		}
 	}
@@ -282,11 +284,11 @@ func (h *Host) run() error {
 		ex.Reason = "agent output: " + readErr.Error()
 	}
 	if h.cgroup != "" {
-		st := readCgroupStats(h.cgroup)
+		st := cgroup.ReadStats(h.cgroup)
 		ex.OOMKill = st.OOMKills > 0
 		ex.Cgroup = &st
-		ex.Reason = oomReason(ex.Reason, h.oomStart, st.OOMKills)
-		if err := removeCgroup(h.cgroup); err != nil {
+		ex.Reason = cgroup.OOMReason(ex.Reason, h.oomStart, st.OOMKills)
+		if err := cgroup.Remove(h.cgroup); err != nil {
 			h.log.Warn("remove cgroup", "err", err)
 		}
 	}
@@ -320,7 +322,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 		// (see stderrTap). bwrap closes the status fd in the sandbox, so
 		// it is a dup of stderr made just for bwrap (statusWrap).
 		sb.ExtraArgs = append([]string{"--json-status-fd", "3"}, sb.ExtraArgs...)
-		argv, net, err := sandboxArgs(sb, h.spec.Command, h.spec.Args, h.spec.Dir)
+		argv, net, err := sandbox.BuildArgs(sb, h.spec.Command, h.spec.Args, h.spec.Dir)
 		if err != nil {
 			return nil, err
 		}
@@ -355,10 +357,10 @@ func (h *Host) startAgent() (io.Reader, error) {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	if h.spec.Cgroup != nil {
-		dir, limits, err := prepareCgroup(*h.spec.Cgroup, h.spec.Session)
+		dir, limits, err := cgroup.Prepare(*h.spec.Cgroup, h.spec.Session)
 		if dir != "" {
 			h.cgroup = dir
-			h.oomStart = oomKills(dir)
+			h.oomStart = cgroup.OOMKills(dir)
 		}
 		if err != nil {
 			return nil, err
@@ -423,7 +425,7 @@ func (h *Host) stop(reason string) {
 // which also reaches processes that left the process group, else its
 // process group.
 func (h *Host) killAll() {
-	if h.cgroup != "" && cgroupKill(h.cgroup) {
+	if h.cgroup != "" && cgroup.Kill(h.cgroup) {
 		return
 	}
 	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
@@ -472,7 +474,7 @@ func (h *Host) statsLoop() {
 			continue
 		}
 		if h.cgroup != "" {
-			conn.send(outItem{line: notification(h.spec.method("cgroup_stats"), readCgroupStats(h.cgroup))})
+			conn.send(outItem{line: notification(h.spec.method("cgroup_stats"), cgroup.ReadStats(h.cgroup))})
 		}
 		if pending != (ExportStats{}) {
 			conn.send(outItem{line: notification(h.spec.method("export_stats"), pending)})

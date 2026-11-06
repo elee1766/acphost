@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elee1766/acphost/cgroup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,13 +21,13 @@ func TestEventsValue(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "memory.events"), []byte("low 0\nhigh 2\nmax 5\noom 1\noom_kill 1\noom_group_kill 0\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 0\nfrozen 0\n"), 0o644))
-	assert.Equal(t, int64(1), readCgroupStats(dir).OOMKills)
-	assert.False(t, cgroupPopulated(dir))
-	assert.True(t, waitCgroupEmpty(dir, time.Second))
+	assert.Equal(t, int64(1), cgroup.ReadStats(dir).OOMKills)
+	assert.False(t, cgroup.Populated(dir))
+	assert.True(t, cgroup.WaitEmpty(dir, time.Second))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0o644))
-	assert.True(t, cgroupPopulated(dir))
-	assert.False(t, waitCgroupEmpty(dir, 30*time.Millisecond))
-	assert.Equal(t, CgroupStats{}, readCgroupStats(t.TempDir()), "missing files")
+	assert.True(t, cgroup.Populated(dir))
+	assert.False(t, cgroup.WaitEmpty(dir, 30*time.Millisecond))
+	assert.Equal(t, CgroupStats{}, cgroup.ReadStats(t.TempDir()), "missing files")
 }
 
 func TestReadCgroupStats(t *testing.T) {
@@ -38,9 +39,9 @@ func TestReadCgroupStats(t *testing.T) {
 	write("cpu.stat", "usage_usec 12345\nuser_usec 10000\nsystem_usec 2345\n")
 	write("memory.events", "low 0\nhigh 0\nmax 7\noom 2\noom_kill 2\n")
 	// No memory.peak: kernels before 5.19 lack it.
-	assert.Equal(t, CgroupStats{MemoryCurrent: 1048576, CPUUsageUsec: 12345, OOMKills: 2, MemoryMaxEvents: 7}, readCgroupStats(dir))
+	assert.Equal(t, CgroupStats{MemoryCurrent: 1048576, CPUUsageUsec: 12345, OOMKills: 2, MemoryMaxEvents: 7}, cgroup.ReadStats(dir))
 	write("memory.peak", "2097152\n")
-	assert.Equal(t, int64(2097152), readCgroupStats(dir).MemoryPeak)
+	assert.Equal(t, int64(2097152), cgroup.ReadStats(dir).MemoryPeak)
 }
 
 func TestCgroupStatsNotifyAndExit(t *testing.T) {

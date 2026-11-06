@@ -1,4 +1,4 @@
-package acphost
+package userns
 
 import (
 	"errors"
@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/elee1766/acphost/internal/xerr"
 )
 
 // TestSubIDAllocHelper is a child process: it allocates a block in
@@ -55,7 +57,7 @@ func TestAllocSubIDsDistinct(t *testing.T) {
 		t.Fatalf("got %d allocs", len(allocs))
 	}
 	_, err := AllocSubIDs(dir, uids, gids, 2)
-	var pe *PermanentError
+	var pe *xerr.PermanentError
 	if !errors.As(err, &pe) {
 		t.Fatalf("exhausted: got %v, want PermanentError", err)
 	}
@@ -76,7 +78,7 @@ func TestAllocSubIDsDistinct(t *testing.T) {
 }
 
 func TestAllocSubIDsBadInput(t *testing.T) {
-	var pe *PermanentError
+	var pe *xerr.PermanentError
 	if _, err := AllocSubIDs(t.TempDir(), []Range{{1, 1}}, []Range{{1, 1}}, 2); !errors.As(err, &pe) {
 		t.Fatalf("range smaller than size: %v", err)
 	}

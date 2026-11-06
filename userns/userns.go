@@ -1,4 +1,4 @@
-package acphost
+package userns
 
 import (
 	"bufio"
@@ -10,6 +10,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/internal/trace"
+	"github.com/elee1766/acphost/internal/xerr"
 )
 
 // User on a Spec runs the agent as UID:GID inside a user
@@ -37,19 +41,6 @@ type Range struct {
 }
 
 func (r Range) contains(id int) bool { return id >= r.Start && id-r.Start < r.Count }
-
-// Paths of the subordinate id files. Variables so tests can point them
-// elsewhere.
-var (
-	subuidPath = "/etc/subuid"
-	subgidPath = "/etc/subgid"
-)
-
-// Caller id lookups, replaced in tests.
-var (
-	getegid   = os.Getegid
-	getgroups = os.Getgroups
-)
 
 // ParseSubIDs reads subuid/subgid lines ("name:start:count") and returns
 // the ranges whose owner is name or the numeric uid. Comments and blank
@@ -79,9 +70,9 @@ func ParseSubIDs(r io.Reader, name string, uid int) ([]Range, error) {
 	return out, sc.Err()
 }
 
-// readSubIDs parses path for uid. A missing file means no ranges.
-func readSubIDs(path string, uid int) ([]Range, error) {
-	trace("subid:" + path)
+// ReadSubIDs parses path for uid. A missing file means no ranges.
+func ReadSubIDs(path string, uid int) ([]Range, error) {
+	trace.Event("subid:" + path)
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -97,14 +88,15 @@ func readSubIDs(path string, uid int) ([]Range, error) {
 	return ParseSubIDs(f, name, uid)
 }
 
-func inRanges(id int, rs []Range) bool {
+// InRanges reports whether id lies in one of rs.
+func InRanges(id int, rs []Range) bool {
 	return slices.ContainsFunc(rs, func(r Range) bool { return r.contains(id) })
 }
 
-// checkSpan returns a PermanentError unless [start, start+n) lies inside
+// CheckSpan returns a PermanentError unless [start, start+n) lies inside
 // a single entry of rs. Adjacent entries do not join: newuidmap checks
 // each map line against one entry.
-func checkSpan(kind, file string, start, n int, rs []Range) error {
+func CheckSpan(kind, file string, start, n int, rs []Range) error {
 	if slices.ContainsFunc(rs, func(r Range) bool {
 		return start >= r.Start && start+n <= r.Start+r.Count
 	}) {
@@ -117,37 +109,37 @@ func checkSpan(kind, file string, start, n int, rs []Range) error {
 	if len(ents) == 0 {
 		ents = []string{"none"}
 	}
-	return Permanentf("user: %ss %d..%d are not inside one %s entry (entries: %s)", kind, start, start+n-1, file, strings.Join(ents, ", "))
+	return xerr.Permanentf("user: %ss %d..%d are not inside one %s entry (entries: %s)", kind, start, start+n-1, file, strings.Join(ents, ", "))
 }
 
-// userMaps builds the id map arguments for newuidmap and newgidmap (the
+// Maps builds the id map arguments for newuidmap and newgidmap (the
 // part after the pid: inside outside count, repeated). self is the
 // caller's uid. Ids the caller cannot map are a PermanentError. Output is
 // sorted so the same User always gives the same arguments.
-func userMaps(u User, self int, subuidFile, subgidFile string, subuid, subgid []Range) (uidArgs, gidArgs []string, err error) {
+func Maps(u User, self int, subuidFile, subgidFile string, subuid, subgid []Range) (uidArgs, gidArgs []string, err error) {
 	if u.UID < 0 || u.GID < 0 || u.MapUID < 0 || u.MapGID < 0 || u.MapCount < 0 {
-		return nil, nil, Permanentf("user: negative id")
+		return nil, nil, xerr.Permanentf("user: negative id")
 	}
 	if u.MapCount > 1 {
-		if err := checkSpan("uid", subuidFile, u.MapUID, u.MapCount, subuid); err != nil {
+		if err := CheckSpan("uid", subuidFile, u.MapUID, u.MapCount, subuid); err != nil {
 			return nil, nil, err
 		}
-		if err := checkSpan("gid", subgidFile, u.MapGID, u.MapCount, subgid); err != nil {
+		if err := CheckSpan("gid", subgidFile, u.MapGID, u.MapCount, subgid); err != nil {
 			return nil, nil, err
 		}
 	}
-	if u.MapUID != self && !inRanges(u.MapUID, subuid) {
-		return nil, nil, Permanentf("user: map_uid %d is not uid %d or in its subuid range", u.MapUID, self)
+	if u.MapUID != self && !InRanges(u.MapUID, subuid) {
+		return nil, nil, xerr.Permanentf("user: map_uid %d is not uid %d or in its subuid range", u.MapUID, self)
 	}
-	held := map[int]bool{getegid(): true}
-	if gs, err := getgroups(); err == nil {
+	held := map[int]bool{hostenv.Getegid(): true}
+	if gs, err := hostenv.Getgroups(); err == nil {
 		for _, g := range gs {
 			held[g] = true
 		}
 	}
-	ownsGID := func(g int) bool { return held[g] || inRanges(g, subgid) }
+	ownsGID := func(g int) bool { return held[g] || InRanges(g, subgid) }
 	if !ownsGID(u.MapGID) {
-		return nil, nil, Permanentf("user: map_gid %d is not held by the caller or in its subgid range", u.MapGID)
+		return nil, nil, xerr.Permanentf("user: map_gid %d is not held by the caller or in its subgid range", u.MapGID)
 	}
 	uidArgs = []string{strconv.Itoa(u.UID), strconv.Itoa(u.MapUID), "1"}
 
@@ -155,16 +147,16 @@ func userMaps(u User, self int, subuidFile, subgidFile string, subuid, subgid []
 	gmap := map[int]int{u.GID: u.MapGID}
 	for _, g := range u.Groups {
 		if g < 0 {
-			return nil, nil, Permanentf("user: negative group %d", g)
+			return nil, nil, xerr.Permanentf("user: negative group %d", g)
 		}
 		if out, ok := gmap[g]; ok {
 			if out != g {
-				return nil, nil, Permanentf("user: group %d is the primary gid, which maps to %d", g, out)
+				return nil, nil, xerr.Permanentf("user: group %d is the primary gid, which maps to %d", g, out)
 			}
 			continue
 		}
 		if !ownsGID(g) {
-			return nil, nil, Permanentf("user: group %d is not held by the caller or in its subgid range", g)
+			return nil, nil, xerr.Permanentf("user: group %d is not held by the caller or in its subgid range", g)
 		}
 		gmap[g] = g
 	}
@@ -176,7 +168,7 @@ func userMaps(u User, self int, subuidFile, subgidFile string, subuid, subgid []
 	outs := map[int]bool{}
 	for _, g := range inside {
 		if outs[gmap[g]] {
-			return nil, nil, Permanentf("user: gid %d mapped twice", gmap[g])
+			return nil, nil, xerr.Permanentf("user: gid %d mapped twice", gmap[g])
 		}
 		outs[gmap[g]] = true
 		gidArgs = append(gidArgs, strconv.Itoa(g), strconv.Itoa(gmap[g]), "1")
@@ -184,24 +176,24 @@ func userMaps(u User, self int, subuidFile, subgidFile string, subuid, subgid []
 	return uidArgs, gidArgs, nil
 }
 
-// checkUser validates u for the current process and checks newuidmap and
+// Check validates u for the current process and checks newuidmap and
 // newgidmap are on PATH.
-func checkUser(u User) error {
+func Check(u User) error {
 	self := os.Geteuid()
-	subuid, err := readSubIDs(subuidPath, self)
+	subuid, err := ReadSubIDs(hostenv.SubUIDPath, self)
 	if err != nil {
-		return Permanentf("user: %s: %w", subuidPath, err)
+		return xerr.Permanentf("user: %s: %w", hostenv.SubUIDPath, err)
 	}
-	subgid, err := readSubIDs(subgidPath, self)
+	subgid, err := ReadSubIDs(hostenv.SubGIDPath, self)
 	if err != nil {
-		return Permanentf("user: %s: %w", subgidPath, err)
+		return xerr.Permanentf("user: %s: %w", hostenv.SubGIDPath, err)
 	}
-	if _, _, err := userMaps(u, self, subuidPath, subgidPath, subuid, subgid); err != nil {
+	if _, _, err := Maps(u, self, hostenv.SubUIDPath, hostenv.SubGIDPath, subuid, subgid); err != nil {
 		return err
 	}
 	for _, c := range []string{"newuidmap", "newgidmap"} {
-		if err := lookCommand(c, nil); err != nil {
-			return Permanentf("user: %s: %w", c, err)
+		if err := trace.LookCommand(c, nil); err != nil {
+			return xerr.Permanentf("user: %s: %w", c, err)
 		}
 	}
 	return nil

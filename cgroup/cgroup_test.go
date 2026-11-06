@@ -1,10 +1,12 @@
-package acphost
+package cgroup
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/elee1766/acphost/internal/xerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,8 +23,8 @@ func fakeCgroup(t *testing.T, controllers string) string {
 func TestPrepareCgroupWritesLimits(t *testing.T) {
 	parent := fakeCgroup(t, "cpu memory pids")
 	c := Cgroup{Parent: parent, CPUMax: "50000 100000", MemoryMax: "1073741824", MemoryHigh: "max", SwapMax: "0", PidsMax: 512}
-	require.NoError(t, checkCgroup(c))
-	dir, limits, err := prepareCgroup(c, "s1")
+	require.NoError(t, Check(c))
+	dir, limits, err := Prepare(c, "s1")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(parent, "s1"), dir)
 	assert.Equal(t, []LimitApplied{{"cpu.max", "50000 100000"}, {"memory.max", "1073741824"}, {"memory.high", "max"}, {"memory.swap.max", "0"}, {"pids.max", "512"}}, limits)
@@ -35,14 +37,14 @@ func TestPrepareCgroupWritesLimits(t *testing.T) {
 	for _, file := range []string{"cpu.max", "memory.max", "memory.high", "memory.swap.max", "pids.max"} {
 		require.NoError(t, os.Remove(filepath.Join(dir, file)))
 	}
-	require.NoError(t, removeCgroup(dir))
+	require.NoError(t, Remove(dir))
 	assert.NoDirExists(t, dir)
-	assert.NoError(t, removeCgroup(dir), "already gone")
+	assert.NoError(t, Remove(dir), "already gone")
 }
 
 func TestPrepareCgroupOnlySetFields(t *testing.T) {
 	parent := fakeCgroup(t, "pids")
-	dir, _, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 10}, "s")
+	dir, _, err := Prepare(Cgroup{Parent: parent, PidsMax: 10}, "s")
 	require.NoError(t, err)
 	ents, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -62,42 +64,30 @@ func TestCheckCgroupErrors(t *testing.T) {
 		"negative pids":  {Parent: parent, PidsMax: -1},
 	}
 	for name, c := range cases {
-		err := checkCgroup(c)
+		err := Check(c)
 		assert.Error(t, err, name)
-		assert.True(t, Permanent(err), name)
+		assert.True(t, isPermanent(err), name)
 	}
-	assert.NoError(t, checkCgroup(Cgroup{Parent: parent, CPUMax: "max 100000"}))
+	assert.NoError(t, Check(Cgroup{Parent: parent, CPUMax: "max 100000"}))
 
-	err := checkCgroup(Cgroup{Parent: parent, MemoryMax: "max"})
+	err := Check(Cgroup{Parent: parent, MemoryMax: "max"})
 	require.Error(t, err)
-	assert.True(t, Permanent(err))
+	assert.True(t, isPermanent(err))
 	assert.Contains(t, err.Error(), `"memory"`)
 
-	err = checkCgroup(Cgroup{Parent: parent, SwapMax: "0"})
+	err = Check(Cgroup{Parent: parent, SwapMax: "0"})
 	require.Error(t, err, "swap_max needs the memory controller")
 	assert.Contains(t, err.Error(), `"memory"`)
-
-	err = CheckSpawn(Spec{Dir: t.TempDir(), Command: "x", Cgroup: &Cgroup{Parent: parent, PidsMax: 1}}, false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `"pids"`)
 }
 
 func TestPrepareCgroupRejectsEscape(t *testing.T) {
 	parent := fakeCgroup(t, "pids")
 	for _, s := range []string{"", ".", "..", "../x", "a/b", "/abs"} {
-		_, _, err := prepareCgroup(Cgroup{Parent: parent, PidsMax: 1}, s)
+		_, _, err := Prepare(Cgroup{Parent: parent, PidsMax: 1}, s)
 		assert.Error(t, err, s)
 	}
 	_, err := os.Stat(filepath.Join(filepath.Dir(parent), "x"))
 	assert.True(t, os.IsNotExist(err))
-}
-
-func TestNilCgroupTouchesNothing(t *testing.T) {
-	exe := filepath.Join(t.TempDir(), "agent")
-	require.NoError(t, os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o700))
-	s := Spec{Dir: t.TempDir(), Command: exe}
-	assert.NoError(t, CheckSpawn(s, false))
-	assert.Nil(t, s.Cgroup)
 }
 
 func TestDelegatedCgroup(t *testing.T) {
@@ -108,14 +98,14 @@ func TestDelegatedCgroup(t *testing.T) {
 	proc := filepath.Join(t.TempDir(), "cgroup")
 	require.NoError(t, os.WriteFile(proc, []byte("0::/user.slice/app.scope\n"), 0o644))
 
-	info, err := delegatedCgroup(proc, root)
+	info, err := delegated(proc, root)
 	require.NoError(t, err)
 	assert.Equal(t, cg, info.Path)
 	assert.True(t, info.Writable)
 	assert.Equal(t, []string{"cpu", "memory", "pids"}, info.Controllers)
 
 	require.NoError(t, os.WriteFile(proc, []byte("1:name=systemd:/x\n"), 0o644))
-	_, err = delegatedCgroup(proc, root)
+	_, err = delegated(proc, root)
 	assert.Error(t, err, "no v2 line")
 }
 
@@ -157,7 +147,7 @@ func TestSetupDelegation(t *testing.T) {
 func TestSetupDelegationMissingController(t *testing.T) {
 	own := fakeDelegation(t, "cpu pids")
 	_, err := setupDelegation(own, 4242, []string{"memory", "pids"})
-	var pe *PermanentError
+	var pe *xerr.PermanentError
 	require.ErrorAs(t, err, &pe)
 	assert.Contains(t, err.Error(), filepath.Join(own, "cgroup.controllers"))
 	assert.NoDirExists(t, filepath.Join(own, "sessions"))
@@ -171,7 +161,12 @@ func TestSetupDelegationReadOnly(t *testing.T) {
 	file := filepath.Join(own, "cgroup.subtree_control")
 	require.NoError(t, os.Chmod(file, 0o444))
 	_, err := setupDelegation(own, 4242, []string{"memory"})
-	var pe *PermanentError
+	var pe *xerr.PermanentError
 	require.ErrorAs(t, err, &pe)
 	assert.Contains(t, err.Error(), file)
+}
+
+func isPermanent(err error) bool {
+	var pe *xerr.PermanentError
+	return errors.As(err, &pe)
 }

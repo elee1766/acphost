@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elee1766/acphost/cgroup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +59,7 @@ func TestSessionNames(t *testing.T) {
 
 			// The cgroup dir is <parent>/<session>.
 			parent := t.TempDir()
-			cg, _, err := prepareCgroup(Cgroup{Parent: parent}, tc.session)
+			cg, _, err := cgroup.Prepare(Cgroup{Parent: parent}, tc.session)
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Join(parent, tc.session), cg)
 			st, err := os.Stat(cg)

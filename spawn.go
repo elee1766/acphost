@@ -6,24 +6,12 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+
+	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/internal/trace"
+	"github.com/elee1766/acphost/userns"
 )
-
-// PermanentError is a spawn failure that retrying cannot fix: the host
-// config points at something that is not there (#146).
-type PermanentError struct{ Err error }
-
-// Error returns the wrapped error's message.
-func (e *PermanentError) Error() string { return e.Err.Error() }
-
-// Unwrap returns the wrapped error.
-func (e *PermanentError) Unwrap() error { return e.Err }
-
-// Permanentf returns a PermanentError.
-func Permanentf(format string, a ...any) error {
-	return &PermanentError{Err: fmt.Errorf(format, a...)}
-}
 
 // Permanent reports whether a spawn error will repeat on every attempt:
 // a PermanentError, a missing file or directory, or an executable not on
@@ -54,7 +42,7 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 		}
 	}
 	if s.Cgroup != nil {
-		if err := checkCgroup(*s.Cgroup); err != nil {
+		if err := cgroup.Check(*s.Cgroup); err != nil {
 			return err
 		}
 	}
@@ -66,7 +54,7 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 		}
 	}
 	if s.User != nil {
-		if err := checkUser(*s.User); err != nil {
+		if err := userns.Check(*s.User); err != nil {
 			return err
 		}
 	}
@@ -109,31 +97,4 @@ func sandboxWithEnv(s Sandbox, env []string) Sandbox {
 	return s
 }
 
-func lookCommand(cmd string, env []string) error {
-	trace("look:" + cmd)
-	if strings.Contains(cmd, "/") {
-		st, err := os.Stat(cmd)
-		if err != nil {
-			return err
-		}
-		if st.IsDir() || st.Mode()&0o111 == 0 {
-			return fmt.Errorf("not executable: %w", exec.ErrNotFound)
-		}
-		return nil
-	}
-	path := os.Getenv("PATH")
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			path = v
-		}
-	}
-	for _, d := range filepath.SplitList(path) {
-		if d == "" {
-			d = "."
-		}
-		if st, err := os.Stat(filepath.Join(d, cmd)); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
-			return nil
-		}
-	}
-	return exec.ErrNotFound
-}
+func lookCommand(cmd string, env []string) error { return trace.LookCommand(cmd, env) }
