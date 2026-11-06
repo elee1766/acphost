@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/elee1766/acphost/internal/trace"
 )
@@ -27,6 +28,9 @@ type Sandbox struct {
 	RW []Mount `json:"rw,omitempty"`
 	// Tmpfs lists empty tmpfs mounts. Only Dst is used.
 	Tmpfs []Mount `json:"tmpfs,omitempty"`
+	// Overlay lists overlay mounts: several host dirs merged onto one
+	// destination, later layers winning file by file (#163).
+	Overlay []Overlay `json:"overlay,omitempty"`
 	// Hide lists paths covered by an empty tmpfs after all binds.
 	Hide []string `json:"hide,omitempty"`
 	// EnvKeep names host env variables passed into the sandbox. All
@@ -91,6 +95,103 @@ func (m *Mount) UnmarshalJSON(b []byte) error {
 	}
 	*m = Mount(p)
 	return nil
+}
+
+// Overlay is one overlay mount. bwrap reads each layer from the host, so
+// a layer cannot be another overlay inside the sandbox: pass one flat
+// list per destination.
+type Overlay struct {
+	Dst string `json:"dst"`
+	// Layers are host dirs, lowest first. At least one, at most
+	// MaxOverlayLayers, all existing.
+	Layers []string `json:"layers"`
+	// Mode is "ro" (default, read-only), "tmp" (writes go to a tmpfs and
+	// are lost) or "persist" (writes go to Upper).
+	Mode string `json:"mode,omitempty"`
+	// Upper and Work are host dirs for Mode "persist": on the same
+	// filesystem, not inside a layer, Work empty.
+	Upper string `json:"upper,omitempty"`
+	Work  string `json:"work,omitempty"`
+}
+
+// MaxOverlayLayers bounds Overlay.Layers.
+const MaxOverlayLayers = 500
+
+// args checks o and returns its bwrap flags.
+func (o Overlay) args() ([]string, error) {
+	fail := func(format string, a ...any) ([]string, error) {
+		return nil, fmt.Errorf("sandbox: overlay %s: "+format, append([]any{o.Dst}, a...)...)
+	}
+	if !filepath.IsAbs(o.Dst) {
+		return fail("dst must be absolute")
+	}
+	if len(o.Layers) == 0 {
+		return fail("no layers")
+	}
+	if len(o.Layers) > MaxOverlayLayers {
+		return fail("%d layers, over the limit of %d", len(o.Layers), MaxOverlayLayers)
+	}
+	var out []string
+	for _, l := range o.Layers {
+		if !filepath.IsAbs(l) {
+			return fail("layer %s is not absolute", l)
+		}
+		st, err := os.Stat(l)
+		if err != nil {
+			return fail("layer: %w", err)
+		}
+		if !st.IsDir() {
+			return fail("layer %s is not a directory", l)
+		}
+		out = append(out, "--overlay-src", filepath.Clean(l))
+	}
+	dst := filepath.Clean(o.Dst)
+	switch o.Mode {
+	case "", "ro":
+		if o.Upper != "" || o.Work != "" {
+			return fail("upper and work need mode persist")
+		}
+		return append(out, "--ro-overlay", dst), nil
+	case "tmp":
+		if o.Upper != "" || o.Work != "" {
+			return fail("upper and work need mode persist")
+		}
+		return append(out, "--tmp-overlay", dst), nil
+	case "persist":
+	default:
+		return fail("unknown mode %q", o.Mode)
+	}
+	if !filepath.IsAbs(o.Upper) || !filepath.IsAbs(o.Work) {
+		return fail("persist needs absolute upper and work")
+	}
+	upper, work := filepath.Clean(o.Upper), filepath.Clean(o.Work)
+	if within(upper, work) || within(work, upper) {
+		return fail("upper and work must not nest")
+	}
+	for _, l := range o.Layers {
+		l = filepath.Clean(l)
+		if within(upper, l) || within(work, l) {
+			return fail("upper and work must not be inside layer %s", l)
+		}
+	}
+	var us, ws syscall.Stat_t
+	if err := syscall.Stat(upper, &us); err != nil {
+		return fail("upper: %w", err)
+	}
+	if err := syscall.Stat(work, &ws); err != nil {
+		return fail("work: %w", err)
+	}
+	if us.Dev != ws.Dev {
+		return fail("upper and work are on different filesystems")
+	}
+	ents, err := os.ReadDir(work)
+	if err != nil {
+		return fail("work: %w", err)
+	}
+	if len(ents) > 0 {
+		return fail("work %s is not empty", work)
+	}
+	return append(out, "--overlay", upper, work, dst), nil
 }
 
 func (m Mount) dst() string {
@@ -176,6 +277,7 @@ func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *Net
 
 	type bind struct {
 		flag, src, dst string
+		overlay        []string // full flags of an overlay mount
 	}
 	var binds []bind
 	for _, m := range s.RO {
@@ -185,16 +287,23 @@ func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *Net
 			}
 			return fail(fmt.Errorf("sandbox: ro %s: %w", m.Src, err))
 		}
-		binds = append(binds, bind{"--ro-bind", m.Src, m.dst()})
+		binds = append(binds, bind{flag: "--ro-bind", src: m.Src, dst: m.dst()})
 	}
 	for _, m := range s.RW {
 		if _, err := os.Stat(m.Src); err != nil {
 			return fail(fmt.Errorf("sandbox: rw %s: %w", m.Src, err))
 		}
-		binds = append(binds, bind{"--bind", m.Src, m.dst()})
+		binds = append(binds, bind{flag: "--bind", src: m.Src, dst: m.dst()})
 	}
 	for _, m := range s.Tmpfs {
-		binds = append(binds, bind{"--tmpfs", "", m.dst()})
+		binds = append(binds, bind{flag: "--tmpfs", dst: m.dst()})
+	}
+	for _, o := range s.Overlay {
+		a, err := o.args()
+		if err != nil {
+			return fail(err)
+		}
+		binds = append(binds, bind{dst: filepath.Clean(o.Dst), overlay: a})
 	}
 	// Parents first. Stable, so at equal depth the input order holds and
 	// a later mount at the same path wins.
@@ -228,9 +337,12 @@ func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *Net
 		argv = append(argv, "--cap-drop", "ALL")
 	}
 	for _, b := range binds {
-		if b.flag == "--tmpfs" {
+		switch {
+		case b.overlay != nil:
+			argv = append(argv, b.overlay...)
+		case b.flag == "--tmpfs":
 			argv = append(argv, b.flag, b.dst)
-		} else {
+		default:
 			argv = append(argv, b.flag, b.src, b.dst)
 		}
 	}
