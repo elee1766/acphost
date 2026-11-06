@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/elee1766/acphost/compare/v0.12.1...v0.13.0) (2026-11-06)
+
+
+### Features
+
+* **cmd:** add acphost CLI with run and host modes from a YAML config ([#165](https://github.com/elee1766/acphost/issues/165)) ([#182](https://github.com/elee1766/acphost/issues/182)) ([b762aca](https://github.com/elee1766/acphost/commit/b762aca4b9c869cdb22ccffe62de9c589d69f650))
+
 ## [0.12.1](https://github.com/elee1766/acphost/compare/v0.12.0...v0.12.1) (2026-11-06)
 
 
