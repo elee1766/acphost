@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -104,32 +103,18 @@ func Main(dir string, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	unlock, err := lockDir(dir)
-	if err != nil {
-		return err
-	}
-	// The proc supervisor's lock and pid file, so proc.Open, Running,
-	// Wait and Stop work on a session dir. host.lock and host.pid stay
-	// for clients and hosts from before #210, which only know those.
+	// The proc supervisor's lock and pid file are the host's only ones
+	// (#222): proc.Open, Running, Wait and Stop and Alive all read them,
+	// and a second host on dir fails here.
 	sup, err := proc.Supervise(dir)
 	if err != nil {
-		unlock()
 		return err
 	}
-	// host.lock goes first: proc's Wait returns when supervisor.lock is
-	// released, and a caller then checks Alive, which reads host.lock
-	// (#216). Two separate defers would release them in the other order.
-	defer func() {
-		unlock()
-		_ = sup.Close()
-	}()
+	defer func() { _ = sup.Close() }()
 	if _, err := os.Stat(filepath.Join(dir, CompressedJournalFile)); err == nil {
 		if _, err := os.Stat(filepath.Join(dir, JournalFile)); errors.Is(err, os.ErrNotExist) {
 			return ErrJournalCompressed
 		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, PidFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		return err
 	}
 	_ = os.Remove(filepath.Join(dir, ExitFile))
 	// Orphans of the agent reparent to the host and die with its group.
@@ -144,8 +129,11 @@ func Main(dir string, opts ...Option) error {
 	return h.run()
 }
 
+// lockDir takes dir's supervisor lock without writing a pid file, so a
+// host cannot start while CompressJournal works on dir. Alive and
+// proc's Running report true meanwhile.
 func lockDir(dir string) (func(), error) {
-	f, err := os.OpenFile(filepath.Join(dir, LockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, proc.LockFile), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}

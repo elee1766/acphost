@@ -11,8 +11,8 @@
 //     exit.json says why. The test keeps running.
 //   - Stop, and the t.Cleanup that Start registers, send the stop method
 //     over the socket (the agent gets SIGTERM, then SIGKILL after the
-//     host's grace period), wait for Main to return and remove host.pid
-//     and supervisor.pid, which Main leaves behind and which hold the
+//     host's grace period), wait for Main to return and remove
+//     supervisor.pid, which Main leaves behind and which holds the
 //     test process's pid. Cleanup fails the test if Main does not return
 //     within StopTimeout.
 //   - Main installs SIGTERM and SIGINT handlers and ignores SIGHUP and
@@ -123,7 +123,7 @@ func (h *Host) Exit() (acphost.Exit, bool) {
 }
 
 // Stop asks the host to stop, waits for Main to return and removes
-// host.pid and supervisor.pid. It is safe to call more than once and
+// supervisor.pid. It is safe to call more than once and
 // after the agent exited.
 func (h *Host) Stop() {
 	h.t.Helper()
@@ -138,12 +138,10 @@ func (h *Host) Stop() {
 			return
 		}
 	}
-	// Both hold the test process's pid; a later Stop through them would
+	// It holds the test process's pid; a later Stop through it would
 	// signal the test binary.
-	for _, f := range []string{acphost.PidFile, proc.SupervisorPidFile} {
-		if err := os.Remove(filepath.Join(h.Dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			h.t.Errorf("acphosttest: remove pid file: %v", err)
-		}
+	if err := os.Remove(filepath.Join(h.Dir, proc.SupervisorPidFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		h.t.Errorf("acphosttest: remove pid file: %v", err)
 	}
 }
 
