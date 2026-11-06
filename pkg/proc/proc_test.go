@@ -22,6 +22,9 @@ import (
 
 func TestMain(m *testing.M) {
 	proc.MaybeChild()
+	if dir := os.Getenv("PROC_TEST_DETACH_CHILD"); dir != "" {
+		detachChild(dir)
+	}
 	if fifo := os.Getenv("PROC_TEST_START_CHILD"); fifo != "" {
 		startChild(fifo)
 	}
