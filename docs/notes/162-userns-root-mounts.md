@@ -38,5 +38,11 @@ Unchanged: no sandbox (helper switches ids itself), User mapped to the
 caller's own uid (the agent is the caller, nothing to fix), and a joined
 user namespace (`Join["user"]`).
 
+Ubuntu 24.04's AppArmor profile `bwrap-userns-restrict` denies
+capabilities to processes bwrap starts, so the init helper's setresgid
+fails with EPERM even with CAP_SETGID in CapEff (the error now prints
+ids, caps and maps). CI unloads that profile; a host using it needs the
+same, or `MapUID` set to the caller's own uid.
+
 Release note for jobshop: the pre-spawn check no longer needs to check
 host-side parents of mount sources for sandboxed User sessions (JOB-53).

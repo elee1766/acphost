@@ -30,6 +30,11 @@ jobs:
           # TestUsernsSandboxRootMode maps the agent to a subuid.
           grep -q "^$USER:" /etc/subuid || sudo usermod --add-subuids 200000-265535 "$USER"
           grep -q "^$USER:" /etc/subgid || sudo usermod --add-subgids 200000-265535 "$USER"
+          # Ubuntu's bwrap-userns-restrict profile denies capabilities to
+          # what bwrap runs, so the in-sandbox id switch (#162) gets EPERM.
+          if [ -f /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+          fi
       # Each test step writes go test -json to test-<step>.json and prints
       # the full output from it unfiltered: a grep here once hid the real
       # TestSandboxPastaDNS error (#131, #178). rc keeps the test exit code.
