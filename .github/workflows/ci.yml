@@ -27,14 +27,20 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           # TestSandboxPastaDNS runs a fake resolver on 127.0.0.77:53.
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=53
-      - run: |
-          set -o pipefail
-          go test -race -v -run 'TestSandbox|TestUserns' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
+      # Each test step writes go test -json to test-<step>.json and prints
+      # the full output from it unfiltered: a grep here once hid the real
+      # TestSandboxPastaDNS error (#131, #178). rc keeps the test exit code.
+      - name: sandbox tests
+        run: |
+          go test -json -race -v -run 'TestSandbox|TestUserns' ./... > test-sandbox.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-sandbox.json
+          exit "${rc:-0}"
       # Cgroup integration tests need a delegated cgroup with memory and
       # pids. P is owned by the runner and holds no processes, so it can
       # enable controllers. The shell moves into the leaf P/test, so P is
       # the common ancestor for moving the agent into P/<session>.
       - name: cgroup tests
+        if: success() || failure()
         run: |
           P=/sys/fs/cgroup/acphost-ci
           sudo mkdir $P $P/test
@@ -42,10 +48,29 @@ jobs:
           echo '+memory +pids' | sudo tee $P/cgroup.subtree_control >/dev/null
           sudo chown -R "$(id -u):$(id -g)" $P
           echo $$ | sudo tee $P/test/cgroup.procs >/dev/null
-          set -o pipefail
-          ACPHOST_TEST_CGROUP=$P go test -race -count=1 -v -run 'TestCgroup|TestMatrix|TestNoFields' ./... 2>&1 | grep -E '^(=== RUN|--- |    |ok|FAIL|PASS)'
+          ACPHOST_TEST_CGROUP=$P go test -json -race -count=1 -v -run 'TestCgroup|TestMatrix|TestNoFields' ./... > test-cgroup.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-cgroup.json
+          exit "${rc:-0}"
       # The tests above ran already; -skip keeps them from running twice.
-      - run: go test -race -skip 'TestSandbox|TestUserns|TestCgroup|TestMatrix|TestNoFields' ./...
+      - name: other tests
+        if: success() || failure()
+        run: |
+          go test -json -race -skip 'TestSandbox|TestUserns|TestCgroup|TestMatrix|TestNoFields' ./... > test-other.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-other.json
+          exit "${rc:-0}"
+      # failed-tests.json is what `jobshop report ci-failures` reads: a
+      # list of {package, test} for each failed test across the steps.
+      - name: list failed tests
+        if: failure()
+        run: |
+          cat test-*.json 2>/dev/null | jq -s '[.[] | select(.Action == "fail" and .Test != null) | {package: .Package, test: .Test}] | unique' > failed-tests.json
+          cat failed-tests.json
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: failed-tests
+          path: failed-tests.json
+          if-no-files-found: ignore
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.15.0
