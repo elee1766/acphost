@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -15,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/reexec"
 	"golang.org/x/sys/unix"
 )
 
@@ -35,24 +32,13 @@ const (
 	OutputFile = "output.log"
 )
 
-// supervisor argv[0] and fds: config in, status out.
-const (
-	superviseArgv0 = "acphost-supervise"
-	superviseCfgFd = 3
-	superviseOutFd = 4
-)
+// superviseArgv0 is the supervisor's argv[0], dispatched by MaybeChild.
+const superviseArgv0 = "acphost-supervise"
 
 type superviseConfig struct {
 	Dir   string        `json:"dir"`
 	Spec  Spec          `json:"spec"`
 	Grace time.Duration `json:"grace"`
-}
-
-// superviseStatus is the one line the supervisor reports on its status
-// fd: the command's pid once started, or why it did not start.
-type superviseStatus struct {
-	Pid   int    `json:"pid,omitempty"`
-	Error string `json:"error,omitempty"`
 }
 
 // Detached is a command started by StartDetached or found by Open. It
@@ -71,51 +57,29 @@ type Detached struct {
 // It returns once the command started; a setup error from Start is
 // returned here. Needs MaybeChild in main.
 func StartDetached(dir string, s Spec, grace time.Duration) (*Detached, error) {
-	if err := reexec.Check(); err != nil {
+	if err := PrepareDetached(dir); err != nil {
 		return nil, err
 	}
-	if d, err := Open(dir); err == nil && d.Running() {
-		return nil, fmt.Errorf("proc: %s: supervisor %d already running", dir, d.Pid)
-	}
-	for _, f := range []string{ExitFile, IsolationFile} {
-		_ = os.Remove(filepath.Join(dir, f))
-	}
-	cfgR, cfgW, err := reexec.ConfigPipe(superviseConfig{Dir: dir, Spec: s, Grace: grace})
+	pid, err := Detach(DetachSpec{Argv0: superviseArgv0, Config: superviseConfig{Dir: dir, Spec: s, Grace: grace}})
 	if err != nil {
 		return nil, err
-	}
-	_ = cfgW.Close()
-	defer func() { _ = cfgR.Close() }()
-	stR, stW, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = stR.Close() }()
-	cmd := exec.Command("/proc/self/exe")
-	cmd.Args = []string{superviseArgv0}
-	cmd.Dir = "/"
-	files := reexec.SetExtraFile(nil, superviseCfgFd, cfgR)
-	cmd.ExtraFiles = reexec.SetExtraFile(files, superviseOutFd, stW)
-	// Own session and no parent-death signal: it outlives the caller.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	err = cmd.Start()
-	_ = stW.Close()
-	if err != nil {
-		return nil, err
-	}
-	pid := cmd.Process.Pid
-	// Reap it in the background while the caller lives; after that
-	// init does.
-	go func() { _ = cmd.Wait() }()
-	b, _ := io.ReadAll(io.LimitReader(stR, 1<<16))
-	var st superviseStatus
-	if err := json.Unmarshal(b, &st); err != nil {
-		return nil, fmt.Errorf("proc: supervisor exited before reporting: %q", b)
-	}
-	if st.Error != "" {
-		return nil, errors.New(st.Error)
 	}
 	return &Detached{Dir: dir, Pid: pid}, nil
+}
+
+// PrepareDetached refuses dir while a supervisor holds it, and removes
+// the previous run's ExitFile and IsolationFile, so a reader does not
+// take them for the next run's.
+func PrepareDetached(dir string) error {
+	if d, err := Open(dir); err == nil && d.Running() {
+		return fmt.Errorf("proc: %s: supervisor %d already running", dir, d.Pid)
+	}
+	for _, f := range []string{ExitFile, IsolationFile} {
+		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Open finds the detached command recorded in dir. It works whether or
@@ -205,80 +169,40 @@ func (d *Detached) Stop() error {
 // superviseChild is the supervisor: it runs the command with Start,
 // records it under the dir and exits when it does.
 func superviseChild() {
-	fail := func(format string, a ...any) {
-		fmt.Fprintf(os.Stderr, "acphost supervise: "+format+"\n", a...)
+	var cfg superviseConfig
+	ready, err := DetachedChild(&cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "acphost supervise: %v\n", err)
 		os.Exit(127)
 	}
-	// Inherited fds are not close-on-exec; the command must not hold
-	// the status pipe open, or StartDetached never sees EOF.
-	unix.CloseOnExec(superviseCfgFd)
-	unix.CloseOnExec(superviseOutFd)
-	out := os.NewFile(superviseOutFd, "acphost-status")
-	if out == nil {
-		fail("status fd %d not open", superviseOutFd)
-	}
-	report := func(st superviseStatus) {
-		b, _ := json.Marshal(st)
-		_, _ = out.Write(b)
-		_ = out.Close()
-	}
-	var cfg superviseConfig
-	ok, err := reexec.ReadConfig(superviseCfgFd, &cfg)
-	if err != nil || !ok {
-		fail("config: %v", err)
+	fail := func(err error) {
+		ready(0, err)
+		os.Exit(1)
 	}
 	// The command's parent-death signal follows this thread.
 	runtime.LockOSThread()
-	lock, err := os.OpenFile(filepath.Join(cfg.Dir, LockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	sup, err := Supervise(cfg.Dir)
 	if err != nil {
-		report(superviseStatus{Error: err.Error()})
-		os.Exit(1)
-	}
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		report(superviseStatus{Error: "proc: " + cfg.Dir + " is locked by another supervisor"})
-		os.Exit(1)
-	}
-	if err := os.WriteFile(filepath.Join(cfg.Dir, SupervisorPidFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		report(superviseStatus{Error: err.Error()})
-		os.Exit(1)
+		fail(err)
 	}
 	logf, err := os.OpenFile(filepath.Join(cfg.Dir, OutputFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		report(superviseStatus{Error: err.Error()})
-		os.Exit(1)
+		fail(err)
 	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	p, err := Start(context.Background(), cfg.Spec, Stdout(logf), Stderr(logf))
 	if err != nil {
-		report(superviseStatus{Error: err.Error()})
-		os.Exit(1)
+		fail(err)
 	}
-	if b, err := json.Marshal(p.Isolation()); err == nil {
-		_ = writeAtomic(filepath.Join(cfg.Dir, IsolationFile), b)
-	}
-	report(superviseStatus{Pid: p.Pid()})
+	_ = sup.WriteIsolation(p.Isolation())
+	ready(p.Pid(), nil)
 	go func() {
 		<-sigs
 		p.Stop(cfg.Grace)
 	}()
 	ex, _ := p.Wait()
-	b, _ := json.Marshal(ex)
-	_ = writeAtomic(filepath.Join(cfg.Dir, ExitFile), b)
-	_ = lock.Close() // releases the flock: waiters read ExitFile now
+	_ = sup.WriteExit(ex)
+	_ = sup.Close() // releases the flock: waiters read ExitFile now
 	os.Exit(0)
-}
-
-// writeAtomic writes b to path through a temp file and rename, so a
-// reader never sees a partial file.
-func writeAtomic(path string, b []byte) error {
-	tmp := path + ".tmp" + strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
 }

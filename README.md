@@ -107,8 +107,9 @@ func main() {
 		Command: "claude-code-acp", Dir: "/path/to/work", LeaseMS: 600_000,
 	})
 
-	// 2. Start the host. A real client runs its own binary detached
-	// (Setsid), with a subcommand whose body is acphost.Main(dir).
+	// 2. Start the host. A real client starts it detached with
+	// acphost.StartDetached(dir, env), which needs acphost.MaybeChild
+	// first in main; see "Detached host" below.
 	go func() { _ = acphost.Main(dir) }()
 
 	// 3. Connect (retry until acp.sock exists). The welcome has the last
@@ -451,10 +452,32 @@ if err == nil && d.Running() {
 ex, err := d.Wait(ctx) // blocks on the lock, returns exit.json
 ```
 
-The ACP host still runs its own detached process (`acphost.Main`).
+The ACP host uses the same supervisor parts; see "Detached host".
 Details in `docs/notes/158-proc-start.md` and
 `docs/notes/159-proc-detached.md`; examples are `ExampleStart` and
 `ExampleStartDetached` in `pkg/proc`.
+
+## Detached host
+
+`acphost.StartDetached(dir, env)` starts a host for the spec already in
+`dir` in a process that outlives the caller (this binary re-exec'd in
+its own session, as `proc.StartDetached` runs a command). It returns
+once the agent started, or the spawn failure as a `*SpawnError`. Call
+`acphost.MaybeChild(opts...)` first in `main` instead of
+`proc.MaybeChild()`: it also runs the host child, with `opts` passed to
+`Main`.
+
+The host is its own supervisor, so `proc.Open(dir)` works on a session
+dir: `Running`, `Stop` (the host stops the agent) and `Wait`, which
+blocks on the lock and returns `exit.json` as a `proc.Exit` with the
+agent's exit code, signal, OOM kill and cgroup stats. `ReadExit` reads
+the same file with the host's reason.
+
+Session dir files: `spec.json`, `acp.sock`, `journal.ndjson` (and its
+index), `isolation.json`, `exit.json`, `host.log` (the host's stderr),
+`host.lock` and `host.pid`, and since #210 `supervisor.lock` and
+`supervisor.pid` too. A host run by `Main` directly also writes them.
+Details in `docs/notes/210-host-on-proc.md`.
 
 ## CLI
 

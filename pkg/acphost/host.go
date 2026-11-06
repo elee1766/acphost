@@ -53,6 +53,9 @@ type Host struct {
 	log  *slog.Logger
 	// cgroup is the session cgroup dir, empty without Spec.Cgroup.
 	cgroup string
+	// sup holds the dir for proc.Open: supervisor.lock, supervisor.pid,
+	// and the isolation and exit records (#210).
+	sup *proc.Supervisor
 
 	journal  *os.File
 	conv     Exporter // nil unless the caller supplied an ExporterFactory
@@ -106,6 +109,14 @@ func Main(dir string, opts ...Option) error {
 		return err
 	}
 	defer unlock()
+	// The proc supervisor's lock and pid file, so proc.Open, Running,
+	// Wait and Stop work on a session dir. host.lock and host.pid stay
+	// for clients and hosts from before #210, which only know those.
+	sup, err := proc.Supervise(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sup.Close() }()
 	if _, err := os.Stat(filepath.Join(dir, CompressedJournalFile)); err == nil {
 		if _, err := os.Stat(filepath.Join(dir, JournalFile)); errors.Is(err, os.ErrNotExist) {
 			return ErrJournalCompressed
@@ -120,7 +131,7 @@ func Main(dir string, opts ...Option) error {
 		log.Warn("subreaper", "err", err)
 	}
 	h := &Host{
-		dir: dir, spec: spec, log: log.With("session", spec.Session), opts: o,
+		dir: dir, spec: spec, log: log.With("session", spec.Session), opts: o, sup: sup,
 		calls: map[string]pendingCall{}, agentReqs: map[string]json.RawMessage{},
 		stopping: make(chan struct{}), disconnected: time.Now(),
 	}
@@ -211,6 +222,9 @@ func (h *Host) run() error {
 		return &SpawnError{Exit: ex, Err: err}
 	}
 	h.log.Info("agent started", "pid", h.agent.Pid(), "command", h.spec.Command)
+	if h.opts.started != nil {
+		h.opts.started(h.agent.Pid())
+	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -321,15 +335,24 @@ func (h *Host) stop(reason string) {
 }
 
 func (h *Host) writeIsolation(iso Isolation) {
-	b, _ := json.Marshal(iso) // fixed struct, cannot fail
-	if err := writeFileAtomic(filepath.Join(h.dir, IsolationFile), b); err != nil {
+	if err := h.sup.WriteIsolation(iso); err != nil {
 		h.log.Error("write isolation", "err", err)
 	}
 }
 
+// writeExit records e. Its JSON has proc.Exit's keys, so proc.Open's
+// Wait reads the exit code, signal and cgroup stats from it. A spawn
+// failure is also written as proc's setup_error, so a proc reader sees
+// it as one.
 func (h *Host) writeExit(e Exit) {
-	b, _ := json.Marshal(e) // fixed struct, cannot fail
-	if err := os.WriteFile(filepath.Join(h.dir, ExitFile), b, 0o600); err != nil {
+	rec := struct {
+		Exit
+		SetupError string `json:"setup_error,omitempty"`
+	}{Exit: e}
+	if e.Reason == ReasonSpawnFailed {
+		rec.SetupError = e.Error
+	}
+	if err := h.sup.WriteExit(rec); err != nil {
 		h.log.Error("write exit", "err", err)
 	}
 }

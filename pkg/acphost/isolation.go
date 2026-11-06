@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/elee1766/acphost/pkg/proc"
 )
@@ -44,18 +43,4 @@ func ReadIsolation(dir string) (Isolation, bool, error) {
 		return iso, false, fmt.Errorf("%s: %w", IsolationFile, err)
 	}
 	return iso, true, nil
-}
-
-// writeFileAtomic writes b to path through a temp file and rename, so a
-// reader never sees a partial file.
-func writeFileAtomic(path string, b []byte) error {
-	tmp := path + ".tmp" + strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
 }
