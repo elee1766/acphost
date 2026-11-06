@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elee1766/acphost/pkg/cgroup"
 	"github.com/elee1766/acphost/pkg/hostenv"
+	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/elee1766/acphost/pkg/userns"
 )
 
 type preflightFixture struct {
@@ -64,9 +67,9 @@ func write(t *testing.T, path, s string) {
 
 func (f preflightFixture) spec() Isolated {
 	return Isolated{
-		Cgroup:  &Cgroup{Parent: f.parent, MemoryMax: "1G", PidsMax: 100},
-		User:    &User{UID: 1000, GID: 1000, MapUID: 101000, MapGID: 101000, MapCount: 1000},
-		Sandbox: &Sandbox{Network: "pasta"},
+		Cgroup:  &cgroup.Cgroup{Parent: f.parent, MemoryMax: "1G", PidsMax: 100},
+		User:    &userns.User{UID: 1000, GID: 1000, MapUID: 101000, MapGID: 101000, MapCount: 1000},
+		Sandbox: &sandbox.Sandbox{Network: "pasta"},
 	}
 }
 
@@ -117,7 +120,7 @@ func TestPreflightNoIsolation(t *testing.T) {
 
 func TestPreflightNoPastaNoNetworkCheck(t *testing.T) {
 	f := newPreflightFixture(t)
-	r, _ := preflight(Isolated{Sandbox: &Sandbox{Network: "none"}}, f.env)
+	r, _ := preflight(Isolated{Sandbox: &sandbox.Sandbox{Network: "none"}}, f.env)
 	if _, ok := checkFor(r, "network"); ok || len(r.Checks) != 1 {
 		t.Fatalf("report = %+v", r)
 	}

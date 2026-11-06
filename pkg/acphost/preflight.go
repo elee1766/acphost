@@ -82,15 +82,15 @@ type preflightEnv struct {
 	// cannot make root-owned setuid files.
 	privileged func(path string) error
 	// dnsName, when set, adds the sandbox.dns check resolving it via
-	// dnsCheck (CheckSandboxDNS outside tests).
+	// dnsCheck (sandbox.CheckDNS outside tests).
 	dnsName  string
-	dnsCheck func(s Sandbox, name string) error
+	dnsCheck func(s sandbox.Sandbox, name string) error
 }
 
 // PreflightOption changes what Preflight checks.
 type PreflightOption func(*preflightEnv)
 
-// WithDNSCheck adds the sandbox.dns check: CheckSandboxDNS(spec.Sandbox,
+// WithDNSCheck adds the sandbox.dns check: sandbox.CheckDNS(spec.Sandbox,
 // name) when the spec uses pasta networking and pasta is found. It
 // spawns pasta, so it is opt-in (#136).
 func WithDNSCheck(name string) PreflightOption {
@@ -111,9 +111,9 @@ func Preflight(s Spec, opts ...PreflightOption) (PreflightReport, error) {
 // lets a caller that runs something other than an ACP agent check the
 // host without building a Spec.
 type Isolated struct {
-	Sandbox *Sandbox
-	User    *User
-	Cgroup  *Cgroup
+	Sandbox *sandbox.Sandbox
+	User    *userns.User
+	Cgroup  *cgroup.Cgroup
 }
 
 // PreflightIsolation is Preflight for the isolation settings alone.
@@ -124,7 +124,7 @@ func PreflightIsolation(s Isolated, opts ...PreflightOption) (PreflightReport, e
 		path:       os.Getenv("PATH"),
 		uid:        os.Geteuid(),
 		privileged: setuidOrCaps,
-		dnsCheck:   CheckSandboxDNS,
+		dnsCheck:   sandbox.CheckDNS,
 	}
 	for _, o := range opts {
 		o(&env)
@@ -190,9 +190,9 @@ func preflight(s Isolated, env preflightEnv) (PreflightReport, error) {
 	return r, nil
 }
 
-const hintSetupDelegation = "create it inside the host's delegated cgroup: acphost.SetupDelegation(acphost.DelegatedCgroup().Path, controllers) returns <own>/sessions for cgroup.parent"
+const hintSetupDelegation = "create it inside the host's delegated cgroup: cgroup.SetupDelegation(cgroup.Delegated().Path, controllers) returns <own>/sessions for cgroup.parent"
 
-func preflightCgroupParent(c Cgroup, env preflightEnv) (string, *failure) {
+func preflightCgroupParent(c cgroup.Cgroup, env preflightEnv) (string, *failure) {
 	root := filepath.Clean(env.cgroupRoot)
 	if !filepath.IsAbs(c.Parent) {
 		return "", fail("set cgroup.parent to an absolute path under "+root, "parent %q is not absolute", c.Parent)
@@ -219,7 +219,7 @@ func preflightCgroupWritable(parent string, env preflightEnv) *failure {
 		"parent %s is not writable (not delegated)", parent)
 }
 
-func preflightCgroupControllers(c Cgroup, parent string) *failure {
+func preflightCgroupControllers(c cgroup.Cgroup, parent string) *failure {
 	need := c.Controllers()
 	if len(need) == 0 {
 		return nil
@@ -253,7 +253,7 @@ func preflightCgroupControllers(c Cgroup, parent string) *failure {
 	for i, x := range missing {
 		plus[i] = "+" + x
 	}
-	return fail(fmt.Sprintf("echo %q > %s, or use acphost.SetupDelegation", strings.Join(plus, " "), ctl), "%s", reason)
+	return fail(fmt.Sprintf("echo %q > %s, or use cgroup.SetupDelegation", strings.Join(plus, " "), ctl), "%s", reason)
 }
 
 // preflightIDMapper checks newuidmap or newgidmap is on PATH and can gain
@@ -308,7 +308,7 @@ func resolveCommand(cmd, path string) (string, error) {
 
 // preflightSubIDs checks the caller's subuid (kind "uid") or subgid entry
 // covers the outside ids u maps.
-func preflightSubIDs(u User, kind string, env preflightEnv) ([]Range, *failure) {
+func preflightSubIDs(u userns.User, kind string, env preflightEnv) ([]userns.Range, *failure) {
 	file := filepath.Join(env.etc, "sub"+kind)
 	start, flag := u.MapUID, "--add-subuids"
 	if kind == "gid" {
@@ -348,7 +348,7 @@ func callerHoldsGID(g int) bool {
 
 // preflightUserMap runs the rest of the spawn checks (groups, duplicate
 // gids) once the subid entries are known good.
-func preflightUserMap(u User, env preflightEnv, subuid, subgid []Range) *failure {
+func preflightUserMap(u userns.User, env preflightEnv, subuid, subgid []userns.Range) *failure {
 	_, _, err := userns.Maps(u, env.uid, filepath.Join(env.etc, "subuid"), filepath.Join(env.etc, "subgid"), subuid, subgid)
 	if err != nil {
 		return fail("fix spec.user: each group must be held by the caller or in its subgid range, and no outside gid may be mapped twice", "%v", err)
@@ -356,7 +356,7 @@ func preflightUserMap(u User, env preflightEnv, subuid, subgid []Range) *failure
 	return nil
 }
 
-func preflightDNS(s Sandbox, env preflightEnv) *failure {
+func preflightDNS(s sandbox.Sandbox, env preflightEnv) *failure {
 	if err := env.dnsCheck(s, env.dnsName); err != nil {
 		return fail("set sandbox.dns.forward to a resolver reachable from the namespace and sandbox.resolv_conf to a file naming it (a loopback stub such as 127.0.0.53 is not reachable); see docs/notes/124-sandbox-dns.md",
 			"resolve %s: %v", env.dnsName, err)

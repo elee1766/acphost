@@ -7,13 +7,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/elee1766/acphost/pkg/sandbox"
 )
 
 // CheckSpawn reports a missing pasta as permanent, like a missing bwrap.
 func TestCheckSpawnMissingPasta(t *testing.T) {
 	tmp := t.TempDir()
-	s := Spec{Command: "agent", Dir: tmp, Sandbox: &Sandbox{
-		Bwrap: "/bin/sh", RW: []Mount{{Src: tmp}}, Network: "pasta", Pasta: filepath.Join(tmp, "nopasta"),
+	s := Spec{Command: "agent", Dir: tmp, Sandbox: &sandbox.Sandbox{
+		Bwrap: "/bin/sh", RW: []sandbox.Mount{{Src: tmp}}, Network: "pasta", Pasta: filepath.Join(tmp, "nopasta"),
 	}}
 	var pe *PermanentError
 	if err := CheckSpawn(s, false); !errors.As(err, &pe) || !strings.Contains(err.Error(), "pasta") {
@@ -27,7 +29,7 @@ func TestCheckSpawnMissingPasta(t *testing.T) {
 }
 
 func TestSandboxSpecJSON(t *testing.T) {
-	want := Sandbox{RO: []Mount{{Src: "/nix"}}, Network: "none"}
+	want := sandbox.Sandbox{RO: []sandbox.Mount{{Src: "/nix"}}, Network: "none"}
 	b, err := json.Marshal(Spec{Sandbox: &want})
 	if err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ import (
 
 // runAgent runs one host session whose agent is script and waits for it
 // to exit.
-func runAgent(t *testing.T, shared, name string, u User, script string) {
+func runAgent(t *testing.T, shared, name string, u userns.User, script string) {
 	t.Helper()
 	sess := filepath.Join(t.TempDir(), name)
 	require.NoError(t, os.Mkdir(sess, 0o700))
@@ -39,9 +39,9 @@ func TestIsolationTwoSubIDSessions(t *testing.T) {
 	subgid, err := userns.ReadSubIDs(hostenv.SubGIDPath, self)
 	require.NoError(t, err)
 	lockDir := t.TempDir()
-	var users [2]User
+	var users [2]userns.User
 	for i := range users {
-		a, err := AllocSubIDs(lockDir, subuid, subgid, 1)
+		a, err := userns.AllocSubIDs(lockDir, subuid, subgid, 1)
 		if err != nil {
 			t.Skipf("need two subid blocks for uid %d: %v", self, err)
 		}

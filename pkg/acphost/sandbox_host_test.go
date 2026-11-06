@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,13 +39,13 @@ func sandboxSpec(t *testing.T, bwrap, dir, script string) Spec {
 	require.NoError(t, os.MkdirAll(work, 0o700))
 	agent := filepath.Join(work, "agent")
 	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\n"+script), 0o700))
-	var ro []Mount
+	var ro []sandbox.Mount
 	for _, p := range []string{"/nix", "/bin", "/usr", "/lib", "/lib64", "/etc"} {
-		ro = append(ro, Mount{Src: p, SkipMissing: true})
+		ro = append(ro, sandbox.Mount{Src: p, SkipMissing: true})
 	}
 	return Spec{
 		Protocol: Protocol, Session: "s1", Command: agent, Dir: work, GCRootDir: dir, LeaseMS: 60_000,
-		Sandbox: &Sandbox{Bwrap: bwrap, RO: ro, RW: []Mount{{Src: work}}, EnvKeep: []string{"PATH"}},
+		Sandbox: &sandbox.Sandbox{Bwrap: bwrap, RO: ro, RW: []sandbox.Mount{{Src: work}}, EnvKeep: []string{"PATH"}},
 	}
 }
 

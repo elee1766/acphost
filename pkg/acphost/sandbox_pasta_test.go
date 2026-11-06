@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +89,7 @@ func TestSandboxPastaDeny(t *testing.T) {
 if `+bash+` -c 'exec 3<>/dev/tcp/`+gw.String()+`/`+port+`' 2>/dev/null; then r=reachable; else r=unreachable; fi
 echo $r >$PWD/result
 `)
-		s.Sandbox.RO = append(s.Sandbox.RO, Mount{Src: filepath.Dir(bash)})
+		s.Sandbox.RO = append(s.Sandbox.RO, sandbox.Mount{Src: filepath.Dir(bash)})
 		s.Sandbox.Network = "pasta"
 		s.Sandbox.Pasta = pasta
 		s.Sandbox.Deny = deny

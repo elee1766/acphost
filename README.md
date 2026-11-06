@@ -112,9 +112,9 @@ directly, as before.
 
 ```go
 home, _ := os.UserHomeDir()
-spec.Sandbox = &acphost.Sandbox{
-	RO:      []acphost.Mount{{Src: "/nix/store"}, {Src: "/etc"}},
-	RW:      []acphost.Mount{{Src: workDir}},
+spec.Sandbox = &sandbox.Sandbox{
+	RO:      []sandbox.Mount{{Src: "/nix/store"}, {Src: "/etc"}},
+	RW:      []sandbox.Mount{{Src: workDir}},
 	Hide:    []string{filepath.Join(home, ".ssh")},
 	EnvKeep: []string{"PATH", "HOME"},
 	Network: "host", // or "none"
@@ -132,7 +132,7 @@ spec.Sandbox = &acphost.Sandbox{
   and adds nothing else.
 - bwrap is `Sandbox.Bwrap` if set, else `bwrap` on the host's PATH.
   `CheckSpawn` reports a missing bwrap, a missing mount source or a Dir
-  outside RW as a permanent error. `SandboxArgs` returns the argv
+  outside RW as a permanent error. `sandbox.Args` returns the argv
   without running it.
 
 ## pasta network
@@ -167,11 +167,11 @@ systemd-resolved's 127.0.0.53) the namespace cannot reach it. Set
 is consumer config:
 
 ```go
-spec.Sandbox.DNS = &acphost.DNS{Forward: "169.254.1.1", Host: "127.0.0.53"}
+spec.Sandbox.DNS = &sandbox.DNS{Forward: "169.254.1.1", Host: "127.0.0.53"}
 spec.Sandbox.ResolvConf = "/etc/acphost/resolv.conf" // "nameserver 169.254.1.1"
 ```
 
-The forward address must be outside `Deny`. `acphost.CheckSandboxDNS(sb,
+The forward address must be outside `Deny`. `sandbox.CheckDNS(sb,
 name)` resolves a name under pasta once at load time and returns a
 permanent error naming these settings when it fails. Details in
 `docs/notes/124-sandbox-dns.md`.
@@ -184,7 +184,7 @@ namespace. Ids written by the agent show up outside as `MapUID` and
 the host user.
 
 ```go
-spec.User = &acphost.User{UID: 1000, GID: 1000, MapUID: 100000, MapGID: 2000, Groups: []int{2000}}
+spec.User = &userns.User{UID: 1000, GID: 1000, MapUID: 100000, MapGID: 2000, Groups: []int{2000}}
 ```
 
 One-time setup (root):
@@ -214,7 +214,7 @@ blocks with `AllocSubIDs`. It takes the first block whose lock file in
 dead holder's block frees itself.
 
 ```go
-a, err := acphost.AllocSubIDs(lockDir, uids, gids, 65536)
+a, err := userns.AllocSubIDs(lockDir, uids, gids, 65536)
 if err != nil { /* PermanentError when no block is free */ }
 defer a.Release()
 u := a.User(1000, 1000)
@@ -233,7 +233,7 @@ Set `Spec.Cgroup` to give the agent its own cgroup v2,
 `<Parent>/<Session>`, with limits. Nil touches no cgroupfs.
 
 ```go
-spec.Cgroup = &acphost.Cgroup{
+spec.Cgroup = &cgroup.Cgroup{
 	Parent:    "/sys/fs/cgroup/acphost",
 	CPUMax:    "200000 100000", // cpu.max: 2 CPUs
 	MemoryMax: "4294967296",    // memory.max: bytes or "max"
@@ -253,7 +253,7 @@ JSON keys: `parent`, `cpu_max`, `memory_max`, `memory_high`, `swap_max`,
   limit whose controller is not in `Parent/cgroup.subtree_control` as a
   permanent error.
 
-To turn cgroups on only when they work, call `acphost.DelegatedCgroup()`.
+To turn cgroups on only when they work, call `cgroup.Delegated()`.
 It returns the host's own cgroup (`Path`), whether the host may create
 children in it (`Writable`) and its `Controllers`. A cgroup that holds
 processes cannot enable controllers for children, so use a child of it
@@ -291,19 +291,19 @@ One-time setup (root): the host user needs a delegated subtree.
 
 ### SetupDelegation
 
-`acphost.SetupDelegation(own, controllers)` does the in-cgroup steps
+`cgroup.SetupDelegation(own, controllers)` does the in-cgroup steps
 above from Go. `own` is a delegated cgroup v2 directory, usually
-`DelegatedCgroup().Path`. It moves the calling process into
+`cgroup.Delegated().Path`. It moves the calling process into
 `<own>/controller`, enables `controllers` in
 `<own>/cgroup.subtree_control`, creates `<own>/sessions`, enables them
 there too, and returns `<own>/sessions` for `Cgroup.Parent`:
 
 ```go
-info, err := acphost.DelegatedCgroup()
+info, err := cgroup.Delegated()
 if err == nil && info.Writable {
-	parent, err := acphost.SetupDelegation(info.Path, []string{"cpu", "memory", "pids"})
+	parent, err := cgroup.SetupDelegation(info.Path, []string{"cpu", "memory", "pids"})
 	if err == nil {
-		spec.Cgroup = &acphost.Cgroup{Parent: parent, MemoryMax: "4294967296"}
+		spec.Cgroup = &cgroup.Cgroup{Parent: parent, MemoryMax: "4294967296"}
 	}
 }
 ```
@@ -319,7 +319,7 @@ if err == nil && info.Writable {
 
 With `Spec.Cgroup`, the host sends the notification
 `acphost.MethodCgroupStats` (`<prefix>cgroup_stats`) to the connected
-controller on each stats tick. The params are a `CgroupStats`:
+controller on each stats tick. The params are a `cgroup.Stats`:
 
 | field | source |
 |---|---|
@@ -334,7 +334,7 @@ final read, taken just before the cgroup is removed, is stored as
 `"cgroup"` in `exit.json` (`Exit.Cgroup`), next to `oom_kill`.
 
 When the cgroup's OOM killer killed something during the session,
-`Exit.Reason` is `acphost.ReasonOOM` (`"oom"`) instead of the usual
+`Exit.Reason` is `cgroup.ReasonOOM` (`"oom"`) instead of the usual
 exit or stop reason. Kills from before the session started are not
 counted. Details in `docs/notes/59-oom-reason.md`.
 
@@ -371,7 +371,7 @@ print it and stop. Names, hints and the text are in
 `docs/notes/115-preflight-hints.md`.
 
 `acphost.Preflight(spec, acphost.WithDNSCheck("example.com"))` also
-runs `CheckSandboxDNS` as check `sandbox.dns` when the spec uses pasta
+runs `sandbox.CheckDNS` as check `sandbox.dns` when the spec uses pasta
 networking and pasta is found. It spawns pasta, so it is opt-in. See
 `docs/notes/136-preflight-dns.md`.
 

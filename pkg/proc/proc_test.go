@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/acphost"
 	"github.com/elee1766/acphost/pkg/proc"
 	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -105,7 +105,7 @@ func TestNoMaybeChildNamedError(t *testing.T) {
 	_, _, _, _, err := reexec.PdeathWrap([]string{"true"})
 	assert.ErrorIs(t, err, proc.ErrNoMaybeChild)
 
-	err = acphost.CheckSandboxDNS(acphost.Sandbox{Network: "pasta", Pasta: "/bin/true", ResolvConf: writeConf(t)}, "example.com")
+	err = sandbox.CheckDNS(sandbox.Sandbox{Network: "pasta", Pasta: "/bin/true", ResolvConf: writeConf(t)}, "example.com")
 	assert.ErrorIs(t, err, proc.ErrNoMaybeChild)
 }
 
