@@ -2,15 +2,14 @@ package acphost
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/elee1766/acphost/pkg/proc"
 	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/elee1766/acphost/pkg/userns"
-	"golang.org/x/sys/unix"
 )
 
 // Protocol is the host protocol version. A controller refuses hosts it does
@@ -20,8 +19,6 @@ const Protocol = 1
 // Files in a session directory.
 const (
 	SpecFile    = "spec.json"      // Spec, written by the client before start
-	LockFile    = "host.lock"      // flock held for the host's lifetime
-	PidFile     = "host.pid"       // host pid, decimal
 	LogFile     = "host.log"       // host stderr, if the starter redirects it
 	ACPSocket   = "acp.sock"       // unix socket clients Connect to
 	JournalFile = "journal.ndjson" // one Frame per line
@@ -209,19 +206,10 @@ func ReadExit(dir string) (Exit, bool) {
 	return e, true
 }
 
-// Alive reports whether a host holds dir's lock. It never blocks.
+// Alive reports whether a host holds dir's lock, proc.LockFile
+// (supervisor.lock). It never blocks. It is proc's Running: the probe
+// takes a shared lock, so a waiter in proc's Wait, which holds one for a
+// moment after the host exits, is not taken for a host.
 func Alive(dir string) bool {
-	f, err := os.Open(filepath.Join(dir, LockFile))
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	if errors.Is(err, unix.EWOULDBLOCK) {
-		return true
-	}
-	if err == nil {
-		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
-	}
-	return false
+	return (&proc.Detached{Dir: dir}).Running()
 }

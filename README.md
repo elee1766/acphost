@@ -481,9 +481,11 @@ the same file with the host's reason.
 
 Session dir files: `spec.json`, `acp.sock`, `journal.ndjson` (and its
 index), `isolation.json`, `exit.json`, `host.log` (the host's stderr),
-`host.lock` and `host.pid`, and since #210 `supervisor.lock` and
-`supervisor.pid` too. A host run by `Main` directly also writes them.
-Details in `docs/notes/210-host-on-proc.md`.
+`supervisor.lock` (flocked while the host runs) and `supervisor.pid`. A
+host run by `Main` directly also writes them. `Alive(dir)` is
+`proc.Open(dir).Running()` without the pid file. Since #222 there is no
+`host.lock` or `host.pid`; migration in
+`docs/notes/222-drop-legacy-lock.md`.
 
 ## CLI
 
@@ -681,7 +683,7 @@ ex, _ := h.Exit() // waits for the agent to exit
 
 Start returns once acp.sock accepts. When the agent exits, Main returns
 and `h.Done()` closes. At test end, cleanup sends the stop method, waits
-for Main and removes host.pid. While Main runs its SIGTERM and SIGINT
+for Main and removes supervisor.pid. While Main runs its SIGTERM and SIGINT
 handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
 
 ## Release notes

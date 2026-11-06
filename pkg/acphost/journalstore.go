@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
-	"golang.org/x/sys/unix"
 )
 
 // Journal storage: the plain journal.ndjson while a host runs, optionally
@@ -278,7 +277,7 @@ func ensureIndex(s *journalSource, jpath string) (*journalIndex, error) {
 	if n := len(ix.recs); lastStart >= 0 && ix.recs[n-1].seq < ix.lastSeq {
 		ix.recs = append(ix.recs, idxRec{ix.lastSeq, lastStart})
 	}
-	if !s.zst && hostRunning(filepath.Dir(jpath)) {
+	if !s.zst && Alive(filepath.Dir(jpath)) {
 		// The host appends to the index itself. Rewriting it here would
 		// replace the file under the host's open descriptor.
 		return ix, nil
@@ -290,17 +289,6 @@ func ensureIndex(s *journalSource, jpath string) (*journalIndex, error) {
 		_ = appendIndex(ipath, ix.recs[known:])
 	}
 	return ix, nil
-}
-
-// hostRunning reports whether a host holds dir's lock. The probe takes a
-// shared lock for a moment only.
-func hostRunning(dir string) bool {
-	f, err := os.Open(filepath.Join(dir, LockFile))
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	return unix.Flock(int(f.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil
 }
 
 func appendIndex(path string, recs []idxRec) error {

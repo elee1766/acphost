@@ -90,7 +90,7 @@ func TestStartConnectStop(t *testing.T) {
 	ex, ok := acphost.ReadExit(dir)
 	require.True(t, ok)
 	assert.Equal(t, "controller requested stop", ex.Reason)
-	assert.NoFileExists(t, filepath.Join(dir, acphost.PidFile))
+	assert.NoFileExists(t, filepath.Join(dir, proc.SupervisorPidFile))
 	assert.NoFileExists(t, filepath.Join(dir, acphost.ACPSocket))
 }
 
@@ -111,7 +111,6 @@ func TestAgentExit(t *testing.T) {
 	assert.Equal(t, acphost.Exit{Reason: "agent exited", ExitCode: 3}, ex)
 	h.Stop()
 	h.Stop() // idempotent
-	assert.NoFileExists(t, filepath.Join(dir, acphost.PidFile))
 	assert.NoFileExists(t, filepath.Join(dir, proc.SupervisorPidFile))
 }
 
