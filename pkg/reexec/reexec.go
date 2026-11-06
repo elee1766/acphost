@@ -77,6 +77,10 @@ func failer(name string) func(format string, a ...any) {
 	}
 }
 
+// ReadConfig reads one JSON value from fd and closes it, for helpers
+// outside this package. ok is false when nothing was written.
+func ReadConfig(fd int, v any) (ok bool, err error) { return readConfig(fd, v) }
+
 // readConfig reads one JSON value from fd and closes it. ok is false
 // when the fd is closed with nothing written.
 func readConfig(fd int, v any) (ok bool, err error) {
