@@ -85,6 +85,9 @@ type preflightEnv struct {
 	// dnsCheck (sandbox.CheckDNS outside tests).
 	dnsName  string
 	dnsCheck func(s sandbox.Sandbox, name string) error
+	// managerCheck connects to the systemd manager for the systemd
+	// cgroup driver (cgroup.CheckManager outside tests).
+	managerCheck func() error
 }
 
 // PreflightOption changes what Preflight checks.
@@ -119,12 +122,13 @@ type Isolated struct {
 // PreflightIsolation is Preflight for the isolation settings alone.
 func PreflightIsolation(s Isolated, opts ...PreflightOption) (PreflightReport, error) {
 	env := preflightEnv{
-		cgroupRoot: "/sys/fs/cgroup",
-		etc:        filepath.Dir(hostenv.SubUIDPath),
-		path:       os.Getenv("PATH"),
-		uid:        os.Geteuid(),
-		privileged: setuidOrCaps,
-		dnsCheck:   sandbox.CheckDNS,
+		cgroupRoot:   "/sys/fs/cgroup",
+		etc:          filepath.Dir(hostenv.SubUIDPath),
+		path:         os.Getenv("PATH"),
+		uid:          os.Geteuid(),
+		privileged:   setuidOrCaps,
+		dnsCheck:     sandbox.CheckDNS,
+		managerCheck: cgroup.CheckManager,
 	}
 	for _, o := range opts {
 		o(&env)
@@ -148,7 +152,10 @@ func preflight(s Isolated, env preflightEnv) (PreflightReport, error) {
 		}
 		r.Checks = append(r.Checks, c)
 	}
-	if s.Cgroup != nil {
+	if s.Cgroup != nil && s.Cgroup.Driver == cgroup.DriverSystemd {
+		add("cgroup", "cgroup.slice", preflightSlice(*s.Cgroup))
+		add("cgroup", "cgroup.systemd", preflightManager(env))
+	} else if s.Cgroup != nil {
 		parent, f := preflightCgroupParent(*s.Cgroup, env)
 		add("cgroup", "cgroup.parent", f)
 		if f == nil {
@@ -191,6 +198,27 @@ func preflight(s Isolated, env preflightEnv) (PreflightReport, error) {
 }
 
 const hintSetupDelegation = "create it inside the host's delegated cgroup: cgroup.SetupDelegation(cgroup.Delegated().Path, controllers) returns <own>/sessions for cgroup.parent"
+
+// preflightSlice checks the systemd driver's parent is a slice name and
+// the driver and values are valid.
+func preflightSlice(c cgroup.Cgroup) *failure {
+	if err := cgroup.Check(c); err != nil {
+		return fail("with driver systemd set cgroup.parent to a slice unit name such as acphost.slice (or leave it empty)", "%v", err)
+	}
+	return nil
+}
+
+// preflightManager checks the systemd manager answers on its private
+// socket.
+func preflightManager(env preflightEnv) *failure {
+	if env.managerCheck == nil {
+		return nil
+	}
+	if err := env.managerCheck(); err != nil {
+		return fail("run the host under systemd (as root the system manager, else a user manager: loginctl enable-linger <user>), or use driver cgroupfs", "%v", err)
+	}
+	return nil
+}
 
 func preflightCgroupParent(c cgroup.Cgroup, env preflightEnv) (string, *failure) {
 	root := filepath.Clean(env.cgroupRoot)

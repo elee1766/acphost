@@ -67,11 +67,36 @@ jobs:
           ACPHOST_TEST_CGROUP=$P go test -json -race -count=1 -v -run 'TestCgroup|TestMatrix|TestNoFields' ./... > test-cgroup.json || rc=$?
           jq -j 'select(.Action == "output") | .Output' test-cgroup.json
           exit "${rc:-0}"
+      # The systemd cgroup driver tests (#226) need a user manager and
+      # must run in its cgroup tree: moving a process into a scope needs
+      # write access to the common ancestor's cgroup.procs. Linger starts
+      # user@<uid>.service; systemd-run --user --scope puts the test in
+      # it. The socket file exists before the manager answers: on a
+      # runner the first call once waited the full 30s start timeout, so
+      # wait until the manager is up (running or degraded) first. The
+      # tests run three times so a start-up race shows. needSystemd skips
+      # (and this step would pass vacuously) when the manager or the
+      # cgroup tree is missing, so the step checks the tests ran.
+      - name: systemd cgroup tests
+        if: success() || failure()
+        run: |
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          for i in $(seq 100); do [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && break; sleep 0.2; done
+          timeout 120 systemctl --user is-system-running --wait || true
+          systemctl --user is-system-running || true
+          systemd-run --user --scope --quiet --collect env PATH="$PATH" HOME="$HOME" GOCACHE="$(go env GOCACHE)" GOMODCACHE="$(go env GOMODCACHE)" \
+            go test -json -race -count=3 -v -run 'TestSystemd' ./... > test-systemd.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-systemd.json
+          if jq -e 'select(.Action == "skip" and .Test != null)' test-systemd.json >/dev/null; then
+            echo "systemd tests skipped"; exit 1
+          fi
+          exit "${rc:-0}"
       # The tests above ran already; -skip keeps them from running twice.
       - name: other tests
         if: success() || failure()
         run: |
-          go test -json -race -skip 'TestSandbox|TestUserns|TestCgroup|TestMatrix|TestNoFields' ./... > test-other.json || rc=$?
+          go test -json -race -skip 'TestSandbox|TestUserns|TestCgroup|TestMatrix|TestNoFields|TestSystemd' ./... > test-other.json || rc=$?
           jq -j 'select(.Action == "output") | .Output' test-other.json
           exit "${rc:-0}"
       # failed-tests.json is what `jobshop report ci-failures` reads: a

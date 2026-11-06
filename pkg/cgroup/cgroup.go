@@ -14,11 +14,26 @@ import (
 	"github.com/elee1766/acphost/pkg/xerr"
 )
 
+// Drivers for Cgroup.Driver.
+const (
+	// DriverCgroupfs makes the session cgroup with mkdir under a
+	// delegated Parent directory and writes the limit files. The default.
+	DriverCgroupfs = "cgroupfs"
+	// DriverSystemd asks the caller's systemd manager for a transient
+	// scope in the Parent slice with the limits as unit properties
+	// (see StartScope), the split podman and the kubelet use.
+	DriverSystemd = "systemd"
+)
+
 // Cgroup places the agent in a cgroup v2 child of Parent and sets limits
 // on it. Empty strings and a zero PidsMax leave that limit unset.
 type Cgroup struct {
-	// Parent is an absolute path to a delegated cgroup directory, such as
-	// one found with Delegated. The session cgroup is made under it.
+	// Driver is DriverCgroupfs (also when empty) or DriverSystemd.
+	Driver string `json:"driver,omitempty"`
+	// Parent is, with cgroupfs, an absolute path to a delegated cgroup
+	// directory, such as one found with Delegated; the session cgroup is
+	// made under it. With systemd it is a slice name such as
+	// "acphost.slice" (empty: the manager's default).
 	Parent string `json:"parent"`
 	// CPUMax is written to cpu.max: "<quota|max> <period>" in microseconds.
 	CPUMax string `json:"cpu_max,omitempty"`
@@ -69,9 +84,24 @@ func (c Cgroup) limits() []cgroupLimit {
 	return l
 }
 
-// Check validates c against the cgroup tree. Errors are permanent:
-// a retry cannot fix a bad value or a missing controller.
+// Check validates c against the cgroup tree (with systemd, only the
+// values and the slice name). Errors are permanent: a retry cannot fix
+// a bad value or a missing controller.
 func Check(c Cgroup) error {
+	if err := checkValues(c); err != nil {
+		return err
+	}
+	switch c.Driver {
+	case "", DriverCgroupfs:
+	case DriverSystemd:
+		trace.Event("systemd:check")
+		if c.Parent != "" && !ValidSlice(c.Parent) {
+			return xerr.Permanentf("cgroup parent %q is not a slice name (want <name>.slice)", c.Parent)
+		}
+		return nil
+	default:
+		return xerr.Permanentf("cgroup driver %q: want %s or %s", c.Driver, DriverCgroupfs, DriverSystemd)
+	}
 	trace.Event("cgroupfs:check")
 	if !filepath.IsAbs(c.Parent) {
 		return xerr.Permanentf("cgroup parent %q is not absolute", c.Parent)
@@ -80,21 +110,6 @@ func Check(c Cgroup) error {
 		return xerr.Permanentf("cgroup parent: %w", err)
 	} else if !st.IsDir() {
 		return xerr.Permanentf("cgroup parent %s is not a directory", c.Parent)
-	}
-	if c.CPUMax != "" && !validCPUMax(c.CPUMax) {
-		return xerr.Permanentf("cgroup cpu_max %q: want \"<quota|max> <period>\"", c.CPUMax)
-	}
-	if c.MemoryMax != "" && !validBytes(c.MemoryMax) {
-		return xerr.Permanentf("cgroup memory_max %q: want a byte count or max", c.MemoryMax)
-	}
-	if c.MemoryHigh != "" && !validBytes(c.MemoryHigh) {
-		return xerr.Permanentf("cgroup memory_high %q: want a byte count or max", c.MemoryHigh)
-	}
-	if c.SwapMax != "" && !validBytes(c.SwapMax) {
-		return xerr.Permanentf("cgroup swap_max %q: want a byte count or max", c.SwapMax)
-	}
-	if c.PidsMax < 0 {
-		return xerr.Permanentf("cgroup pids_max %d is negative", c.PidsMax)
 	}
 	l := c.limits()
 	if len(l) == 0 {
@@ -109,6 +124,26 @@ func Check(c Cgroup) error {
 		if !slices.Contains(enabled, x.controller) {
 			return xerr.Permanentf("cgroup %s: controller %q not in %s/cgroup.subtree_control", x.file, x.controller, c.Parent)
 		}
+	}
+	return nil
+}
+
+// checkValues checks the limit values, the same for both drivers.
+func checkValues(c Cgroup) error {
+	if c.CPUMax != "" && !validCPUMax(c.CPUMax) {
+		return xerr.Permanentf("cgroup cpu_max %q: want \"<quota|max> <period>\"", c.CPUMax)
+	}
+	if c.MemoryMax != "" && !validBytes(c.MemoryMax) {
+		return xerr.Permanentf("cgroup memory_max %q: want a byte count or max", c.MemoryMax)
+	}
+	if c.MemoryHigh != "" && !validBytes(c.MemoryHigh) {
+		return xerr.Permanentf("cgroup memory_high %q: want a byte count or max", c.MemoryHigh)
+	}
+	if c.SwapMax != "" && !validBytes(c.SwapMax) {
+		return xerr.Permanentf("cgroup swap_max %q: want a byte count or max", c.SwapMax)
+	}
+	if c.PidsMax < 0 {
+		return xerr.Permanentf("cgroup pids_max %d is negative", c.PidsMax)
 	}
 	return nil
 }

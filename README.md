@@ -44,7 +44,7 @@ Packages are under `pkg/`:
 | `pkg/acphost` | the ACP host: spec, `Main`, `Connect`, journal, preflight |
 | `pkg/proc` | run a command with isolation, attached or detached; `MaybeChild` |
 | `pkg/sandbox` | bubblewrap and pasta: `Sandbox`, `Mount`, `Overlay`, `DNS`, `Args` |
-| `pkg/cgroup` | cgroup v2: `Cgroup`, `Stats`, `Delegated`, `SetupDelegation` |
+| `pkg/cgroup` | cgroup v2: `Cgroup`, `Stats`, `Delegated`, `SetupDelegation`, systemd scopes |
 | `pkg/userns` | user namespaces and subids: `User`, `AllocSubIDs` |
 | `pkg/acphosttest` | an in-process host for tests |
 | `cmd/acphost` | the `acphost` CLI |
@@ -367,6 +367,34 @@ if err == nil && info.Writable {
   is not in `<own>/cgroup.controllers`, that file cannot be read, or a
   directory or file cannot be created or written (permission denied,
   read-only). Retrying will not help.
+
+### systemd driver
+
+`Driver: cgroup.DriverSystemd` asks the host's systemd manager for the
+session cgroup instead of making it under a delegated directory, as
+podman and the kubelet do. Use it when the host runs as a systemd unit:
+with cgroupfs and `Delegate=`, the unit's cgroup must enable
+controllers for session cgroups that outlive it, and systemd then cannot
+start the next process of the unit (EBUSY). `Parent` is a slice name
+(empty: the manager's default):
+
+```go
+spec.Cgroup = &cgroup.Cgroup{Driver: cgroup.DriverSystemd, Parent: "acphost.slice", MemoryMax: "4294967296", PidsMax: 512}
+```
+
+- The host talks to the manager on its private socket
+  (`cgroup.ManagerSocket`): the system manager as root, else the user's
+  manager. A non-root host must run in that manager's cgroup tree.
+- Each session gets a transient scope `acphost-<session>-<pid>.scope`
+  in the slice, with the limits as unit properties (`MemoryMax`,
+  `MemoryHigh`, `MemorySwapMax`, `TasksMax`, CPU quota). The agent runs
+  in `<scope>/cmd`; usage stats and the OOM kill are read from the
+  scope, as with cgroupfs. The scope is gone once the agent exits.
+- `isolation.json` has `driver`, `unit` and the limits as the kernel
+  has them. `Preflight` checks the slice name and that the manager
+  answers.
+
+Details in `docs/notes/226-systemd-cgroup-driver.md`.
 
 ### Usage stats
 

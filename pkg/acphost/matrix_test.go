@@ -48,7 +48,7 @@ func TestNoFieldsTouchesNothing(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, s := range seen {
-		assert.False(t, strings.HasPrefix(s, "cgroupfs:") || strings.HasPrefix(s, "subid:") || strings.HasPrefix(s, "run:"), s)
+		assert.False(t, strings.HasPrefix(s, "cgroupfs:") || strings.HasPrefix(s, "systemd:") || strings.HasPrefix(s, "subid:") || strings.HasPrefix(s, "run:"), s)
 		for _, h := range []string{"newuidmap", "newgidmap", "pasta", "nft", "bwrap"} {
 			assert.NotEqual(t, "look:"+h, s)
 		}

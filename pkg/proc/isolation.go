@@ -27,8 +27,12 @@ type Isolation struct {
 }
 
 // CgroupApplied is the command's cgroup and the limit files written to it.
+// With the systemd driver Dir is the scope's cgroup, Unit its unit name,
+// and Limits the values the kernel has once systemd applied them.
 type CgroupApplied struct {
 	Dir    string         `json:"dir"`
+	Driver string         `json:"driver,omitempty"`
+	Unit   string         `json:"unit,omitempty"`
 	Limits []LimitApplied `json:"limits,omitempty"`
 }
 
