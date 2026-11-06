@@ -27,6 +27,9 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           # TestSandboxPastaDNS runs a fake resolver on 127.0.0.77:53.
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=53
+          # TestUsernsSandboxRootMode maps the agent to a subuid.
+          grep -q "^$USER:" /etc/subuid || sudo usermod --add-subuids 200000-265535 "$USER"
+          grep -q "^$USER:" /etc/subgid || sudo usermod --add-subgids 200000-265535 "$USER"
       # Each test step writes go test -json to test-<step>.json and prints
       # the full output from it unfiltered: a grep here once hid the real
       # TestSandboxPastaDNS error (#131, #178). rc keeps the test exit code.

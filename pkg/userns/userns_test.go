@@ -29,6 +29,42 @@ func TestParseSubIDs(t *testing.T) {
 	}
 }
 
+func TestRootMaps(t *testing.T) {
+	uid := []string{"1000", "100500", "1"}
+	gid := []string{"1000", "100500", "1", "27", "27", "1"}
+	for _, tt := range []struct {
+		name     string
+		u        User
+		ok       bool
+		uid, gid []string
+	}{
+		{
+			name: "subids", u: User{UID: 1000, GID: 1000, MapUID: 100500, MapGID: 100500}, ok: true,
+			uid: []string{"0", "1003", "1", "1000", "100500", "1"},
+			gid: []string{"0", "1003", "1", "1000", "100500", "1", "27", "27", "1"},
+		},
+		{name: "root inside", u: User{UID: 0, GID: 1000, MapUID: 100500, MapGID: 100500}, uid: uid, gid: gid},
+		{name: "caller uid", u: User{UID: 1000, GID: 1000, MapUID: 1003, MapGID: 100500}, uid: uid, gid: gid},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			u, g, ok := RootMaps(tt.u, 1003, 1003, uid, gid)
+			if ok != tt.ok || !slices.Equal(u, tt.uid) || !slices.Equal(g, tt.gid) {
+				t.Fatalf("got %v %v %v", u, g, ok)
+			}
+		})
+	}
+	// The caller's gid already mapped (as a group): only the uid line.
+	g2 := []string{"1000", "100500", "1", "1003", "1003", "1"}
+	if u, g, ok := RootMaps(User{UID: 1000, GID: 1000, MapUID: 100500}, 1003, 1003, uid, g2); !ok || len(u) != 6 || !slices.Equal(g, g2) {
+		t.Fatalf("held gid: %v %v %v", u, g, ok)
+	}
+	// Inside gid 0 taken by another outside gid: cannot map egid.
+	g3 := []string{"0", "100500", "1"}
+	if _, _, ok := RootMaps(User{UID: 1000, GID: 0, MapUID: 100500}, 1003, 1003, uid, g3); ok {
+		t.Fatal("gid 0 taken: want false")
+	}
+}
+
 func TestUserMaps(t *testing.T) {
 	oldE, oldG := hostenv.Getegid, hostenv.Getgroups
 	t.Cleanup(func() { hostenv.Getegid, hostenv.Getgroups = oldE, oldG })

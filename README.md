@@ -203,8 +203,12 @@ group write on its directories (`chmod -R g+rwX` and
 `find . -type d -exec chmod g+s {} +`) so new files keep the group. Git
 also needs `core.sharedRepository=group`.
 
-With `Spec.Sandbox` too, bwrap runs inside the namespace and nests its
-own. Map failures are permanent errors carrying the helper's stderr.
+With `Spec.Sandbox` too, the host user is also mapped to root inside
+and bwrap does the mounts with the host user's access, so mount sources
+under a 0700 home work; the command then drops to `UID`/`GID` with no
+capabilities (`docs/notes/162-userns-root-mounts.md`). When `MapUID` is
+the host user's own uid, bwrap runs as that user and nests its own
+namespace. Map failures are permanent errors carrying the helper's stderr.
 
 ### Per-session subids
 
@@ -390,7 +394,8 @@ if err == nil && ok && iso.Cgroup != nil {
 ```
 
 - `cgroup`: `dir` and the `limits` (`file`, `value`) written.
-- `user`: `uid_map` and `gid_map` lines given to newuidmap/newgidmap.
+- `user`: `uid_map` and `gid_map` lines given to newuidmap/newgidmap,
+  including the `0 <host uid> 1` line with a sandbox.
 - `network`: `mode` (`host`, `none`, `pasta`), the `deny` CIDRs loaded
   and `pasta_started`.
 - `bwrap`: the full argv run, including any pasta prefix.
