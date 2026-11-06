@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/elee1766/acphost/compare/v0.15.0...v0.16.0) (2026-11-06)
+
+
+### Features
+
+* **cli:** detached mode start, status, stop, wait ([#200](https://github.com/elee1766/acphost/issues/200)) ([#203](https://github.com/elee1766/acphost/issues/203)) ([bb59a83](https://github.com/elee1766/acphost/commit/bb59a837e4354bbdbd773ccf88414b0f5daa08f8))
+
 ## [0.15.0](https://github.com/elee1766/acphost/compare/v0.14.0...v0.15.0) (2026-11-06)
 
 
