@@ -466,6 +466,7 @@ spawning a host binary (about 1s per host under -race):
 
 ```go
 h := acphosttest.Start(t, dir, acphost.Spec{Session: "s1", Command: agent, Dir: dir})
+// or acphosttest.StartDir(t, dir) when dir already holds a spec
 nc, rd, w, err := acphost.Connect(ctx, dir)
 // ...
 ex, _ := h.Exit() // waits for the agent to exit
@@ -477,6 +478,16 @@ for Main and removes host.pid. While Main runs its SIGTERM and SIGINT
 handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
 
 ## Release notes
+
+v0.9.0 (2026-11-06): in-process test host, Preflight fix hints and DNS
+and nft checks, journal tail and follow speedups. `Protocol` stays 1.
+Details in `docs/notes/126-release-v0.9.0.md`.
+
+- `JournalTail` from the end (#112), inotify follow (#137).
+- Whole subuid/subgid range checked (#113).
+- `acphosttest.Start` and `StartDir` (#114, #127).
+- `Preflight` hints (#115), nft check (#135), `WithDNSCheck` (#136).
+- Pasta DNS forward and resolv_conf (#124).
 
 v0.8.0 (2026-11-05): typed spawn failures and the pdeath helper in
 isolation.json. `Protocol` stays 1. Details in

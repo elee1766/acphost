@@ -10,6 +10,6 @@
     {"type": "perf", "section": "Performance"}
   ],
   "packages": {
-    ".": {}
+    ".": {"release-as": "0.9.0"}
   }
 }
