@@ -464,6 +464,9 @@ jobshop:
 ```sh
 acphost run  -c sandbox.yaml [--dir DIR] -- CMD ARGS...
 acphost host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
+acphost start -c sandbox.yaml --dir STATEDIR [--grace 10s] -- CMD ARGS...
+acphost status|wait --dir STATEDIR
+acphost stop --dir STATEDIR [--grace 30s]
 ```
 
 - `run` starts one command with `proc.Start`, stdio passed through, and
@@ -471,6 +474,11 @@ acphost host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
   2 for a usage or config error).
 - `host` writes `spec.json` into SESSIONDIR and runs `acphost.Main` in
   the foreground, as jobshop spawns it, and prints the socket path.
+- `start` runs the command detached with `proc.StartDetached` (state
+  and output.log in STATEDIR, command in the cwd) and prints the
+  supervisor pid. `status` prints running/exited/lost as JSON, `stop`
+  stops it and prints the exit, `wait` exits with its status like `run`.
+  See `docs/notes/200-cli-detached.md`.
 - Flags: `--network host|none|pasta`, `--ro SRC[:DST]`, `--rw SRC[:DST]`,
   `--join TYPE=PATH`, `--print` (bwrap/pasta argv, uid maps, join plan;
   runs nothing), `--check` (CheckSpawn and Preflight), `-v` (isolation
