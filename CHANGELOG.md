@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/elee1766/acphost/compare/v0.18.0...v0.18.1) (2026-11-06)
+
+
+### Bug fixes
+
+* **acphost:** release host.lock before supervisor.lock ([#216](https://github.com/elee1766/acphost/issues/216)) ([#217](https://github.com/elee1766/acphost/issues/217)) ([3a1bfc5](https://github.com/elee1766/acphost/commit/3a1bfc589812e819f1f9413ec5b58f032aa8a4da))
+
 ## [0.18.0](https://github.com/elee1766/acphost/compare/v0.17.0...v0.18.0) (2026-11-06)
 
 
