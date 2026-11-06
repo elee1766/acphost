@@ -22,6 +22,9 @@ import (
 
 func TestMain(m *testing.M) {
 	proc.MaybeChild()
+	if fifo := os.Getenv("PROC_TEST_START_CHILD"); fifo != "" {
+		startChild(fifo)
+	}
 	if os.Getenv("PROC_TEST_PLAIN") != "" {
 		// Reached main: no helper ran.
 		_, _ = os.Stdout.WriteString("plain main\n")

@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -21,8 +20,7 @@ import (
 	"time"
 
 	"github.com/elee1766/acphost/cgroup"
-	"github.com/elee1766/acphost/internal/reexec"
-	"github.com/elee1766/acphost/sandbox"
+	"github.com/elee1766/acphost/proc"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,15 +53,14 @@ type Host struct {
 	log  *slog.Logger
 	// cgroup is the session cgroup dir, empty without Spec.Cgroup.
 	cgroup string
-	// oomStart is memory.events oom_kill when the cgroup was prepared.
-	oomStart int64
 
-	journal *os.File
-	conv    Exporter // nil unless the caller supplied an ExporterFactory
-	opts    options
-	agentIn io.WriteCloser
-	agent   *exec.Cmd
-	inMu    sync.Mutex // serializes writes to the agent
+	journal  *os.File
+	conv     Exporter // nil unless the caller supplied an ExporterFactory
+	opts     options
+	agentIn  io.WriteCloser
+	agent    *proc.Process
+	agentPid int
+	inMu     sync.Mutex // serializes writes to the agent
 
 	mu           sync.Mutex
 	seq          int64
@@ -78,7 +75,6 @@ type Host struct {
 	disconnected time.Time
 	calls        map[string]pendingCall     // host id -> controller call
 	agentReqs    map[string]json.RawMessage // agent request id -> frame, until answered
-	tap          *stderrTap                 // sandbox stderr reader, nil without Spec.Sandbox
 	initResult   json.RawMessage
 	turnEnds     [][]byte // turn_end notifications waiting for a controller
 	prompts      int      // session/prompt calls in flight
@@ -210,14 +206,11 @@ func (h *Host) run() error {
 
 	agentOut, err := h.startAgent()
 	if err != nil {
-		if h.cgroup != "" {
-			_ = cgroup.Remove(h.cgroup)
-		}
 		ex := Exit{Reason: ReasonSpawnFailed, ExitCode: -1, Error: err.Error()}
 		h.writeExit(ex)
 		return &SpawnError{Exit: ex, Err: err}
 	}
-	h.log.Info("agent started", "pid", h.agent.Process.Pid, "command", h.spec.Command)
+	h.log.Info("agent started", "pid", h.agent.Pid(), "command", h.spec.Command)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -234,63 +227,36 @@ func (h *Host) run() error {
 	}()
 	go h.acceptLoop(ln)
 	go h.leaseLoop()
+	h.cgroup = h.agent.CgroupDir()
 	if h.conv != nil || h.cgroup != "" {
 		go h.statsLoop()
 	}
 
 	readErr := h.readAgent(agentOut) // returns when the agent closes stdout
-	waitErr := h.agent.Wait()
+	// Wait also kills anything the agent left in its group or cgroup,
+	// reads the cgroup's usage and removes it.
+	pex, waitErr := h.agent.Wait()
 	h.stop("agent exited")
-	// Kill anything the agent left in its group (it was the group leader)
-	// or, with a cgroup, anywhere in the cgroup.
-	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
-	if h.cgroup != "" {
-		h.killAll()
-		if !cgroup.WaitEmpty(h.cgroup, 5*time.Second) {
-			h.log.Warn("cgroup still populated", "cgroup", h.cgroup)
-		}
-	}
-
-	// The group is dead, so stderr is closed unless something left it.
-	var tap tapResult
-	if h.tap != nil {
-		tap = h.tap.wait(2 * time.Second)
-	}
 
 	// stop has run by now, so stopReason is set. It is "agent exited"
 	// unless the host stopped the agent first (controller stop, lease).
-	ex := Exit{Reason: h.stopReason, ExitCode: h.agent.ProcessState.ExitCode()}
-	if ws, ok := h.agent.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		ex.Signal = ws.Signal().String()
-	} else if h.spec.Sandbox != nil && ex.ExitCode > 128 && ex.ExitCode < 128+65 {
-		// bwrap passes the agent's exit code through and reports a
-		// signal death as 128+n. Report it the way an unsandboxed
-		// agent's signal death is reported.
-		ex.Signal = syscall.Signal(ex.ExitCode - 128).String()
-		ex.ExitCode = -1
-	}
-	// bwrap writes an exit-code status line once the agent has run, and
-	// the userns and pdeath helpers prefix their errors. A non-zero exit
-	// the host did not cause, with no status line or with a helper error,
-	// is a setup failure: a bad bwrap argument or mount, a missing
-	// command, pasta or the deny rules failing, or setresuid refused.
+	ex := Exit{Reason: h.stopReason, ExitCode: pex.ExitCode, Signal: pex.Signal}
+	// A setup error (bad bwrap argument or mount, missing command, pasta
+	// or the deny rules failing, setresuid refused) is only reported by
+	// proc for an exit the host did not cause.
 	var spawnErr *SpawnError
-	if h.tap != nil && ex.Reason == "agent exited" && ex.Signal == "" {
-		if msg := tap.setupError(h.spec.Sandbox != nil, ex.ExitCode); msg != "" {
-			ex.Reason, ex.Error = ReasonSpawnFailed, msg
-			spawnErr = &SpawnError{Err: errors.New(msg)}
-		}
+	if pex.SetupError != "" && ex.Reason == "agent exited" {
+		ex.Reason, ex.Error = ReasonSpawnFailed, pex.SetupError
+		spawnErr = &SpawnError{Err: errors.New(pex.SetupError)}
 	}
 	if readErr != nil && ex.Reason == "agent exited" {
 		ex.Reason = "agent output: " + readErr.Error()
 	}
-	if h.cgroup != "" {
-		st := cgroup.ReadStats(h.cgroup)
-		ex.OOMKill = st.OOMKills > 0
-		ex.Cgroup = &st
-		ex.Reason = cgroup.OOMReason(ex.Reason, h.oomStart, st.OOMKills)
-		if err := cgroup.Remove(h.cgroup); err != nil {
-			h.log.Warn("remove cgroup", "err", err)
+	if pex.Cgroup != nil {
+		ex.OOMKill = pex.Cgroup.OOMKills > 0
+		ex.Cgroup = pex.Cgroup
+		if pex.OOMKill {
+			ex.Reason = cgroup.ReasonOOM
 		}
 	}
 	h.writeExit(ex)
@@ -311,158 +277,47 @@ func (h *Host) run() error {
 }
 
 func (h *Host) startAgent() (io.Reader, error) {
-	cmd := exec.Command(h.spec.Command, h.spec.Args...)
-	// iso records what this function applies, from the code that applies
-	// it. Written once the agent has started.
-	var iso Isolation
-	// pdeathCfg is the pdeath helper's config pipe, read end (see
-	// reexec.PdeathWrap). Closed once started.
-	var pdeathCfg *os.File
-	_, joinPid := h.spec.Join["pid"]
-	if h.spec.Sandbox != nil {
-		sb := sandboxWithEnv(*h.spec.Sandbox, h.spec.Env)
-		// The status lines tell a bwrap setup failure from an agent exit
-		// (see stderrTap). bwrap closes the status fd in the sandbox, so
-		// it is a dup of stderr made just for bwrap (statusWrap).
-		sb.ExtraArgs = append([]string{"--json-status-fd", "3"}, sb.ExtraArgs...)
-		argv, net, err := sandbox.BuildArgs(sb, h.spec.Command, h.spec.Args, h.spec.Dir)
-		if err != nil {
-			return nil, err
-		}
-		if argv, err = statusWrap(argv); err != nil {
-			return nil, err
-		}
-		if joinPid {
-			argv = dropUnsharePid(argv)
-		}
-		iso.Bwrap, iso.Network = argv, net
-		// bwrap does the chdir (Dir is a path inside the sandbox).
-		cmd = exec.Command(argv[0], argv[1:]...)
-	} else {
-		cmd.Dir = h.spec.Dir
+	ps := proc.Spec{
+		Command: h.spec.Command, Args: h.spec.Args, Dir: h.spec.Dir, Env: h.spec.Env,
+		Sandbox: h.spec.Sandbox, Cgroup: h.spec.Cgroup, User: h.spec.User, Join: h.spec.Join, Name: h.spec.Session,
 	}
-	if len(h.spec.Join) > 0 {
-		// nsenter joins, then execs the agent or the sandbox. Joining
-		// mnt resets the cwd, so it changes to Dir after the join
-		// (bwrap does its own chdir).
-		wdns := ""
-		if _, ok := h.spec.Join["mnt"]; ok && h.spec.Sandbox == nil {
-			wdns, cmd.Dir = h.spec.Dir, ""
-		}
-		prefix, applied, err := joinPrefix(h.spec.Join, wdns)
-		if err != nil {
-			return nil, err
-		}
-		iso.Join = applied
-		dir := cmd.Dir
-		cmd = exec.Command(prefix[0], append(prefix[1:], cmd.Args...)...)
-		cmd.Dir = dir
-	}
-	// With pasta, and with join.pid (nsenter forks and waits), the
-	// process the host starts is not the agent and a parent-death
-	// signal on it would not reach the rest.
-	if iso.Network != nil && iso.Network.Mode == "pasta" || joinPid {
-		path, wrapped, r, w, err := reexec.PdeathWrap(cmd.Args)
-		if err != nil {
-			return nil, err
-		}
-		_ = w.Close() // the config is already in the pipe
-		pdeathCfg = r
-		defer func() { _ = pdeathCfg.Close() }()
-		cmd.Path, cmd.Args, cmd.Err = path, wrapped, nil
-		cmd.ExtraFiles = reexec.SetExtraFile(cmd.ExtraFiles, reexec.PdeathFd, r)
-		// The helper file, then nsenter, pasta and bwrap.
-		iso.PdeathHelper = []string{path}
-	}
-	cmd.Env = append(os.Environ(), h.spec.Env...)
-	cmd.Stderr = os.Stderr // host.log
-	if h.spec.Sandbox != nil || h.spec.User != nil || len(h.spec.Join) > 0 {
-		tap, w, err := newStderrTap(os.Stderr)
-		if err != nil {
-			return nil, err
-		}
-		cmd.Stderr = w
-		// The child holds its own copy once started.
-		defer func() { _ = w.Close() }()
-		h.tap = tap
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-	if pdeathCfg != nil {
-		cmd.SysProcAttr.Pdeathsig = reexec.PdeathSignal
-	}
-	if h.spec.Cgroup != nil {
-		dir, limits, err := cgroup.Prepare(*h.spec.Cgroup, h.spec.Session)
-		if dir != "" {
-			h.cgroup = dir
-			h.oomStart = cgroup.OOMKills(dir)
-		}
-		if err != nil {
-			return nil, err
-		}
-		iso.Cgroup = &CgroupApplied{Dir: dir, Limits: limits}
-		f, err := os.Open(dir)
-		if err != nil {
-			return nil, err
-		}
-		// clone3 places the child in the cgroup before it runs, so
-		// nothing it forks can escape. Closed once started.
-		defer func() { _ = f.Close() }()
-		cmd.SysProcAttr.UseCgroupFD = true
-		cmd.SysProcAttr.CgroupFD = int(f.Fd())
-	}
-	start := cmd.Start
-	if h.spec.User != nil {
-		var err error
-		if start, iso.User, err = usernsCommand(cmd, *h.spec.User); err != nil {
-			return nil, err
-		}
-	}
-	in, err := cmd.StdinPipe()
+	inR, inW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	out, err := cmd.StdoutPipe()
+	outR, outW, err := os.Pipe()
 	if err != nil {
+		_ = inR.Close()
+		_ = inW.Close()
 		return nil, err
 	}
-	if err := start(); err != nil {
+	// The child holds its own copies once started.
+	defer func() { _ = inR.Close(); _ = outW.Close() }()
+	// No ctx: the host stops the agent itself (stop, killAll).
+	p, err := proc.Start(context.Background(), ps, proc.Stdin(inR), proc.Stdout(outW), proc.Stderr(os.Stderr))
+	if err != nil {
+		_ = inW.Close()
+		_ = outR.Close()
 		return nil, err
 	}
-	// pasta runs its command only after configuring the namespace, so a
-	// started process here means pasta started; a pasta failure later
-	// shows as the agent's exit.
-	if iso.Network != nil && iso.Network.Mode == "pasta" {
-		iso.Network.PastaStarted = true
-	}
-	h.writeIsolation(iso)
-	h.agent, h.agentIn = cmd, in
-	return out, nil
+	h.writeIsolation(p.Isolation())
+	h.agent, h.agentIn, h.agentPid = p, inW, p.Pid()
+	return outR, nil
 }
 
-// stop asks the agent to exit: SIGTERM to its group, SIGKILL after 5s.
+// stop asks the agent to exit: SIGTERM to its group, SIGKILL after
+// killGrace.
 func (h *Host) stop(reason string) {
 	h.stopOnce.Do(func() {
 		h.stopReason = reason
 		close(h.stopping)
 		h.log.Info("stopping", "reason", reason)
-		if h.agent == nil || h.agent.Process == nil {
+		if h.agent == nil {
 			return
 		}
-		pid := h.agent.Process.Pid
 		_ = h.agentIn.Close()
-		_ = unix.Kill(-pid, unix.SIGTERM)
-		time.AfterFunc(h.opts.killGrace, h.killAll)
+		h.agent.Stop(h.opts.killGrace)
 	})
-}
-
-// killAll SIGKILLs the agent's cgroup when it has one with cgroup.kill,
-// which also reaches processes that left the process group, else its
-// process group.
-func (h *Host) killAll() {
-	if h.cgroup != "" && cgroup.Kill(h.cgroup) {
-		return
-	}
-	_ = unix.Kill(-h.agent.Process.Pid, unix.SIGKILL)
 }
 
 func (h *Host) writeIsolation(iso Isolation) {
@@ -738,7 +593,7 @@ func (h *Host) serveConn(nc net.Conn) {
 	}
 	h.conn = conn
 	w := Welcome{
-		Protocol: Protocol, Pid: os.Getpid(), AgentPid: h.agent.Process.Pid,
+		Protocol: Protocol, Pid: os.Getpid(), AgentPid: h.agentPid,
 		Busy: h.prompts > 0, Seq: h.seq, Initialize: h.initResult,
 		MethodPrefix: MethodName(h.spec.MethodPrefix, ""),
 	}

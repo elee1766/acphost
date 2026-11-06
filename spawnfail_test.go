@@ -116,15 +116,6 @@ func TestSandboxAgentExitNotSpawnFailure(t *testing.T) {
 	assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 5}, ex)
 }
 
-func TestSetupError(t *testing.T) {
-	assert.Empty(t, tapResult{last: "x"}.setupError(true, 0))
-	assert.Equal(t, "x", tapResult{last: "x"}.setupError(true, 1))
-	assert.Equal(t, "sandbox exited 1 before the agent ran", tapResult{}.setupError(true, 1))
-	assert.Empty(t, tapResult{ranAgent: true, last: "x"}.setupError(true, 1))
-	assert.Empty(t, tapResult{last: "x"}.setupError(false, 1), "unsandboxed agent output")
-	assert.Equal(t, "acphost userns: e", tapResult{helperFail: "acphost userns: e", last: "y"}.setupError(false, 127))
-}
-
 // An exit.json from an earlier run, older than the current spec, is not
 // reported as this run's failure.
 func TestSpawnFailureStale(t *testing.T) {

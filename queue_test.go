@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,11 +24,9 @@ func testHost(t *testing.T) *Host {
 	j, err := os.OpenFile(filepath.Join(dir, JournalFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = j.Close() })
-	self, err := os.FindProcess(os.Getpid())
-	require.NoError(t, err)
 	return &Host{
 		dir: dir, journal: j, log: slog.New(slog.DiscardHandler),
-		agent: &exec.Cmd{Process: self}, agentIn: nopWriteCloser{io.Discard},
+		agentPid: os.Getpid(), agentIn: nopWriteCloser{io.Discard},
 		calls: map[string]pendingCall{}, agentReqs: map[string]json.RawMessage{},
 		stopping: make(chan struct{}), disconnected: time.Now(),
 	}
