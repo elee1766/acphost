@@ -12,6 +12,8 @@ import (
 	"github.com/elee1766/acphost/pkg/hostenv"
 	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/elee1766/acphost/pkg/userns"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type preflightFixture struct {
@@ -274,4 +276,47 @@ func TestSetuidOrCaps(t *testing.T) {
 	if err := setuidOrCaps(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("missing file accepted")
 	}
+}
+
+// With the systemd driver, preflight checks the slice name and the
+// manager instead of the cgroupfs parent (#226).
+func TestPreflightSystemd(t *testing.T) {
+	f := newPreflightFixture(t)
+	calls := 0
+	f.env.managerCheck = func() error { calls++; return nil }
+	s := Isolated{Cgroup: &cgroup.Cgroup{Driver: cgroup.DriverSystemd, Parent: "acphost.slice", MemoryMax: "1024"}}
+	r, err := preflight(s, f.env)
+	require.NoError(t, err)
+	assert.True(t, r.OK(), "%s", r)
+	assert.Equal(t, []string{"cgroup.slice", "cgroup.systemd"}, checkNames(r))
+	assert.Equal(t, 1, calls)
+
+	s.Cgroup.Parent = "/sys/fs/cgroup/sessions"
+	f.env.managerCheck = func() error { return errors.New("dial: no such file") }
+	r, err = preflight(s, f.env)
+	require.NoError(t, err)
+	c := checkNamed(r, "cgroup.slice")
+	assert.False(t, c.OK)
+	assert.Contains(t, c.Hint, "slice unit name")
+	c = checkNamed(r, "cgroup.systemd")
+	assert.False(t, c.OK)
+	assert.Contains(t, c.Reason, "no such file")
+	assert.Contains(t, c.Hint, "driver cgroupfs")
+}
+
+func checkNamed(r PreflightReport, name string) PreflightCheck {
+	for _, c := range r.Checks {
+		if c.Name == name {
+			return c
+		}
+	}
+	return PreflightCheck{Name: name + " missing"}
+}
+
+func checkNames(r PreflightReport) []string {
+	var n []string
+	for _, c := range r.Checks {
+		n = append(n, c.Name)
+	}
+	return n
 }

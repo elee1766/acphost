@@ -85,6 +85,8 @@ type Process struct {
 	cmd       *exec.Cmd
 	iso       Isolation
 	cgroup    string
+	cgKill    string        // where the command runs: cgroup, or the scope's leaf
+	scope     *systemdScope // the systemd driver's scope, nil with cgroupfs
 	oomStart  int64
 	sandboxed bool
 	tap       *stderrTap
@@ -113,9 +115,7 @@ func Start(ctx context.Context, s Spec, opts ...Option) (*Process, error) {
 	}
 	p := &Process{done: make(chan struct{}), sandboxed: s.Sandbox != nil}
 	if err := p.start(s, o); err != nil {
-		if p.cgroup != "" {
-			_ = cgroup.Remove(p.cgroup)
-		}
+		p.removeCgroup()
 		return nil, err
 	}
 	if ctx.Done() != nil {
@@ -245,16 +245,11 @@ func (p *Process) start(s Spec, o options) error {
 		cmd.SysProcAttr.Pdeathsig = reexec.PdeathSignal
 	}
 	if s.Cgroup != nil {
-		dir, limits, err := cgroup.Prepare(*s.Cgroup, s.Name)
-		if dir != "" {
-			p.cgroup = dir
-			p.oomStart = cgroup.OOMKills(dir)
-		}
+		leaf, err := p.prepareCgroup(*s.Cgroup, s.Name)
 		if err != nil {
 			return err
 		}
-		iso.Cgroup = &CgroupApplied{Dir: dir, Limits: limits}
-		f, err := os.Open(dir)
+		f, err := os.Open(leaf)
 		if err != nil {
 			return err
 		}
@@ -284,6 +279,40 @@ func (p *Process) start(s Spec, o options) error {
 	return nil
 }
 
+// prepareCgroup makes the command's cgroup with c's driver and records
+// it in p and p.iso. It returns the dir to start the command in.
+func (p *Process) prepareCgroup(c cgroup.Cgroup, name string) (string, error) {
+	if c.Driver == cgroup.DriverSystemd {
+		sc, limits, err := startScope(c, name)
+		if err != nil {
+			return "", err
+		}
+		p.scope, p.cgroup, p.cgKill = sc, sc.scope.Dir, sc.leaf()
+		p.iso.Cgroup = &CgroupApplied{Dir: sc.scope.Dir, Driver: cgroup.DriverSystemd, Unit: sc.scope.Unit, Limits: limits}
+		return p.cgKill, nil
+	}
+	dir, limits, err := cgroup.Prepare(c, name)
+	if dir != "" {
+		p.cgroup, p.cgKill = dir, dir
+		p.oomStart = cgroup.OOMKills(dir)
+	}
+	if err != nil {
+		return "", err
+	}
+	p.iso.Cgroup = &CgroupApplied{Dir: dir, Limits: limits}
+	return dir, nil
+}
+
+// removeCgroup removes the command's cgroup: the cgroupfs dir, or the
+// systemd scope's leaf and holder.
+func (p *Process) removeCgroup() {
+	if p.scope != nil {
+		p.scope.remove()
+	} else if p.cgroup != "" {
+		_ = cgroup.Remove(p.cgroup)
+	}
+}
+
 // sandboxWithEnv returns s with env (KEY=VALUE) set inside the sandbox.
 // bwrap clears the environment, and env is what the caller asked the
 // command to have.
@@ -305,7 +334,9 @@ func (p *Process) Pid() int { return p.cmd.Process.Pid }
 // Isolation is what Start applied.
 func (p *Process) Isolation() Isolation { return p.iso }
 
-// CgroupDir is the command's cgroup, empty without Spec.Cgroup. Removed
+// CgroupDir is the command's cgroup, empty without Spec.Cgroup: the
+// session cgroup, or with the systemd driver the scope (the command
+// runs in a leaf under it). Its usage files cover the command. Removed
 // by Wait.
 func (p *Process) CgroupDir() string { return p.cgroup }
 
@@ -340,7 +371,7 @@ func (p *Process) Stop(grace time.Duration) {
 // Kill SIGKILLs the cgroup when there is one with cgroup.kill, which
 // also reaches processes that left the process group, else the group.
 func (p *Process) Kill() {
-	if p.cgroup != "" && cgroup.Kill(p.cgroup) {
+	if p.cgKill != "" && cgroup.Kill(p.cgKill) {
 		return
 	}
 	_ = unix.Kill(-p.Pid(), unix.SIGKILL)
@@ -370,7 +401,7 @@ func (p *Process) wait() {
 	_ = unix.Kill(-p.Pid(), unix.SIGKILL)
 	if p.cgroup != "" {
 		p.Kill()
-		cgroup.WaitEmpty(p.cgroup, 5*time.Second)
+		cgroup.WaitEmpty(p.cgKill, 5*time.Second)
 	}
 	// The group is dead, so stderr is closed unless something left it.
 	var tap tapResult
@@ -398,7 +429,7 @@ func (p *Process) wait() {
 		cs := cgroup.ReadStats(p.cgroup)
 		ex.Cgroup = &cs
 		ex.OOMKill = cs.OOMKills > p.oomStart
-		_ = cgroup.Remove(p.cgroup)
+		p.removeCgroup()
 	}
 	p.exit = ex
 }
