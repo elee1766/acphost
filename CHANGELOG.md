@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/elee1766/acphost/compare/v0.16.0...v0.16.1) (2026-11-06)
+
+
+### Bug fixes
+
+* **reexec:** lock the userns helper to one thread before clearing caps ([#204](https://github.com/elee1766/acphost/issues/204)) ([#206](https://github.com/elee1766/acphost/issues/206)) ([9a53833](https://github.com/elee1766/acphost/commit/9a53833135fd4c49539ffe70b9a01bab45adbb39))
+
 ## [0.16.0](https://github.com/elee1766/acphost/compare/v0.15.0...v0.16.0) (2026-11-06)
 
 
