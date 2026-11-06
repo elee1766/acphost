@@ -29,8 +29,9 @@ type Option func(*options)
 type options struct {
 	exporter   ExporterFactory
 	redactor   Redactor
-	statsEvery time.Duration // MethodExportStats period; tests shorten it
-	killGrace  time.Duration // SIGTERM to SIGKILL on stop; tests shorten it
+	statsEvery time.Duration      // MethodExportStats period; tests shorten it
+	killGrace  time.Duration      // SIGTERM to SIGKILL on stop; tests shorten it
+	started    func(agentPid int) // called once the agent runs; set by the detached host child
 }
 
 // WithExporter sets the conversation export factory. Nil means no export.

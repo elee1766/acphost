@@ -10,6 +10,7 @@ import (
 
 	"github.com/elee1766/acphost/pkg/acphost"
 	"github.com/elee1766/acphost/pkg/acphosttest"
+	"github.com/elee1766/acphost/pkg/proc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -111,6 +112,7 @@ func TestAgentExit(t *testing.T) {
 	h.Stop()
 	h.Stop() // idempotent
 	assert.NoFileExists(t, filepath.Join(dir, acphost.PidFile))
+	assert.NoFileExists(t, filepath.Join(dir, proc.SupervisorPidFile))
 }
 
 func TestCustomPrefix(t *testing.T) {

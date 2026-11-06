@@ -9,8 +9,10 @@
 // what it missed, and exits when no client has connected for a lease
 // period.
 //
-// A client writes a [Spec] with [WriteSpec], starts a detached process
-// that calls [Main], and talks ACP over the socket returned by [Connect].
+// A client writes a [Spec] with [WriteSpec], starts the host with
+// [StartDetached] (which runs [Main] in a detached re-exec of the
+// program; call [MaybeChild] first in main), and talks ACP over the
+// socket returned by [Connect].
 // After a restart it reconnects with [Hello].Since set to the last seq it
 // saw. See the package example.
 package acphost
