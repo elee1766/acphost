@@ -64,19 +64,19 @@ func Stderr(w io.Writer) Option { return func(o *options) { o.stderr = w } }
 // Exit is how a started command ended.
 type Exit struct {
 	// ExitCode is the exit code, -1 if a signal killed it.
-	ExitCode int
+	ExitCode int `json:"exit_code"`
 	// Signal is the signal that killed the command, if any. A sandboxed
 	// command killed by a signal is reported here too, not as bwrap's
 	// 128+n.
-	Signal string
+	Signal string `json:"signal,omitempty"`
 	// SetupError is set when the command never ran: bwrap, pasta, the
 	// user namespace helper or the deny rules failed. Only reported for
 	// an exit nobody asked for (no Stop, no ctx cancel).
-	SetupError string
+	SetupError string `json:"setup_error,omitempty"`
 	// OOMKill is set when the cgroup's OOM killer killed a process.
-	OOMKill bool
+	OOMKill bool `json:"oom_kill,omitempty"`
 	// Cgroup is the cgroup's final usage, read before it was removed.
-	Cgroup *cgroup.Stats
+	Cgroup *cgroup.Stats `json:"cgroup,omitempty"`
 }
 
 // Process is a command started by Start.
