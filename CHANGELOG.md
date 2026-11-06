@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/elee1766/acphost/compare/v0.12.0...v0.12.1) (2026-11-06)
+
+
+### Features
+
+* **proc:** add StartDetached and Open for commands that outlive the caller ([#159](https://github.com/elee1766/acphost/issues/159)) ([#177](https://github.com/elee1766/acphost/issues/177)) ([43b76f9](https://github.com/elee1766/acphost/commit/43b76f98ef85c6477c34aa902c4c94a246cfe5a4))
+
 ## [0.12.0](https://github.com/elee1766/acphost/compare/v0.11.3...v0.12.0) (2026-11-06)
 
 
