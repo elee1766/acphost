@@ -242,14 +242,13 @@ func StartScope(ctx context.Context, c Cgroup, session string, pid int) (Scope, 
 		return Scope{}, nil, err
 	}
 	defer func() { _ = conn.Close() }()
-	// Registered before the start call, so a job that ends before the
-	// call returns is still seen.
+	// systemd sends the job's JobRemoved to the connection that queued
+	// it, so no Subscribe: that call adds nothing here and subscribes this
+	// connection to every manager signal. Registered before the start
+	// call, so a job that ends before the call returns is still seen.
 	sigs := make(chan *dbus.Signal, 16)
 	conn.Signal(sigs)
 	mgr := conn.Object(systemdDest, systemdPath)
-	if err := mgr.CallWithContext(ctx, systemdManager+".Subscribe", 0).Err; err != nil {
-		return Scope{}, nil, fmt.Errorf("cgroup: systemd subscribe: %w", err)
-	}
 	var job dbus.ObjectPath
 	aux := []struct {
 		Name  string
