@@ -23,3 +23,7 @@ format change: isolation.json types are aliases with the same JSON.
 
 Tests moved with the code. Tests that need Spec, CheckSpawn or a running
 host stayed in root.
+
+Preflight checks only the isolation settings, so PreflightIsolation
+takes `Isolated{Sandbox, User, Cgroup}`; Preflight(Spec) stays as a
+wrapper so callers do not break.

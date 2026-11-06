@@ -47,7 +47,7 @@ func TestIsolationTwoSubIDSessions(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = a.Release() })
 		users[i] = a.User(1000, 1000)
-		rep, err := Preflight(Spec{User: &users[i]})
+		rep, err := PreflightIsolation(Isolated{User: &users[i]})
 		require.NoError(t, err)
 		if !rep.OK() {
 			t.Skipf("preflight: %+v", rep.Checks)

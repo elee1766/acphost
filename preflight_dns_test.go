@@ -46,7 +46,7 @@ func TestPreflightDNSNoPasta(t *testing.T) {
 
 func TestPreflightDNSNotPastaNetwork(t *testing.T) {
 	f, calls := dnsFixture(t, "example.com", errors.New("boom"))
-	r, _ := preflight(Spec{Sandbox: &Sandbox{Network: "none"}}, f.env)
+	r, _ := preflight(Isolated{Sandbox: &Sandbox{Network: "none"}}, f.env)
 	if *calls != 0 || len(r.Checks) != 1 {
 		t.Fatalf("calls=%d report = %+v", *calls, r)
 	}

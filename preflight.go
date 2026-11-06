@@ -104,6 +104,20 @@ func WithDNSCheck(name string) PreflightOption {
 // failed check carries a Hint with the host config change that fixes it
 // (#115).
 func Preflight(s Spec, opts ...PreflightOption) (PreflightReport, error) {
+	return PreflightIsolation(Isolated{Sandbox: s.Sandbox, User: s.User, Cgroup: s.Cgroup}, opts...)
+}
+
+// Isolated is the isolation part of a spec: what Preflight checks. It
+// lets a caller that runs something other than an ACP agent check the
+// host without building a Spec.
+type Isolated struct {
+	Sandbox *Sandbox
+	User    *User
+	Cgroup  *Cgroup
+}
+
+// PreflightIsolation is Preflight for the isolation settings alone.
+func PreflightIsolation(s Isolated, opts ...PreflightOption) (PreflightReport, error) {
 	env := preflightEnv{
 		cgroupRoot: "/sys/fs/cgroup",
 		etc:        filepath.Dir(hostenv.SubUIDPath),
@@ -125,7 +139,7 @@ func fail(hint, format string, a ...any) *failure {
 	return &failure{reason: fmt.Sprintf(format, a...), hint: hint}
 }
 
-func preflight(s Spec, env preflightEnv) (PreflightReport, error) {
+func preflight(s Isolated, env preflightEnv) (PreflightReport, error) {
 	var r PreflightReport
 	add := func(feature, name string, f *failure) {
 		c := PreflightCheck{Feature: feature, Name: name, OK: f == nil}
