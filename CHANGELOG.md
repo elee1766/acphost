@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/elee1766/acphost/compare/v0.20.0...v0.21.0) (2026-11-06)
+
+
+### Features
+
+* **cgroup:** systemd driver with transient scopes ([#226](https://github.com/elee1766/acphost/issues/226)) ([#230](https://github.com/elee1766/acphost/issues/230)) ([0e46e63](https://github.com/elee1766/acphost/commit/0e46e63468b408cb6fbaab5239c094d36d0c8926))
+
 ## [0.20.0](https://github.com/elee1766/acphost/compare/v0.19.1...v0.20.0) (2026-11-06)
 
 
