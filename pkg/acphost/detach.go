@@ -40,6 +40,20 @@ func MaybeChild(opts ...Option) {
 	proc.MaybeChild()
 }
 
+// DetachOption configures StartDetached.
+type DetachOption func(*detachOptions)
+
+type detachOptions struct{ cgroupDir string }
+
+// InCgroup starts the host in the existing cgroup v2 directory dir, so
+// the host and an agent without Spec.Cgroup count there and not in the
+// caller's cgroup (jobshop keeps session hosts out of the controller's
+// share). The caller needs write access to dir's cgroup.procs. A dir
+// that cannot be opened fails StartDetached before anything starts.
+func InCgroup(dir string) DetachOption {
+	return func(o *detachOptions) { o.cgroupDir = dir }
+}
+
 // StartDetached starts a host for the session in dir, whose spec is
 // already written (WriteSpec), in a process that outlives the caller:
 // this binary re-exec'd in its own session, as proc.StartDetached runs
@@ -52,9 +66,13 @@ func MaybeChild(opts ...Option) {
 // stops the agent), and Wait, which returns exit.json with the agent's
 // exit code, signal and cgroup stats; ReadExit has the reason. Needs
 // MaybeChild in main.
-func StartDetached(dir string, env []string) (*proc.Detached, error) {
+func StartDetached(dir string, env []string, opts ...DetachOption) (*proc.Detached, error) {
 	if !maybeChildCalled.Load() {
 		return nil, ErrNoMaybeChild
+	}
+	var o detachOptions
+	for _, f := range opts {
+		f(&o)
 	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -74,7 +92,7 @@ func StartDetached(dir string, env []string) (*proc.Detached, error) {
 		return nil, err
 	}
 	defer func() { _ = logf.Close() }()
-	pid, err := proc.Detach(proc.DetachSpec{Argv0: hostArgv0, Config: hostConfig{Dir: dir}, Dir: dir, Env: env, Log: logf})
+	pid, err := proc.Detach(proc.DetachSpec{Argv0: hostArgv0, Config: hostConfig{Dir: dir}, Dir: dir, Env: env, Log: logf, CgroupDir: o.cgroupDir})
 	if err != nil {
 		// exit.json was removed above, so one here is this host's.
 		if ex, ok := ReadExit(dir); ok && ex.Reason == ReasonSpawnFailed {

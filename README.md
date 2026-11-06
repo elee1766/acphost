@@ -467,6 +467,12 @@ once the agent started, or the spawn failure as a `*SpawnError`. Call
 `proc.MaybeChild()`: it also runs the host child, with `opts` passed to
 `Main`.
 
+`acphost.InCgroup(cgdir)` starts the host in an existing cgroup v2
+directory instead of the caller's, so the host (and an agent without
+`Spec.Cgroup`) counts there. jobshop uses it to keep session hosts out
+of the controller's share. Details in
+`docs/notes/223-detached-host-cgroup.md`.
+
 The host is its own supervisor, so `proc.Open(dir)` works on a session
 dir: `Running`, `Stop` (the host stops the agent) and `Wait`, which
 blocks on the lock and returns `exit.json` as a `proc.Exit` with the
