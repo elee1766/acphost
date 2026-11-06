@@ -24,4 +24,8 @@ Release: release-please would propose 0.8.9 (`bump-patch-for-minor-pre-major`),
 so `release-as: 0.9.0` is set in release-please-config.json, as #106 did.
 Remove it once v0.9.0 is tagged.
 
+A chore commit alone does not trigger a release with release-as:
+release-please logged "No user facing commits found" after #144 and
+skipped. #145 adds a `fix` commit with a `Release-As: 0.9.0` footer.
+
 Install: `go get github.com/elee1766/acphost@v0.9.0`
