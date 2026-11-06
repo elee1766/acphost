@@ -16,14 +16,14 @@ import (
 
 // subUser returns a User mapped to the first subordinate id block of the
 // caller, or skips when it has none.
-func subUser(t *testing.T) User {
+func subUser(t *testing.T) userns.User {
 	t.Helper()
 	self := os.Geteuid()
 	subuid, err := userns.ReadSubIDs(hostenv.SubUIDPath, self)
 	require.NoError(t, err)
 	subgid, err := userns.ReadSubIDs(hostenv.SubGIDPath, self)
 	require.NoError(t, err)
-	a, err := AllocSubIDs(t.TempDir(), subuid, subgid, 1)
+	a, err := userns.AllocSubIDs(t.TempDir(), subuid, subgid, 1)
 	if err != nil {
 		t.Skipf("no subid block for uid %d: %v", self, err)
 	}
