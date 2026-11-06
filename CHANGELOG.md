@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/elee1766/acphost/compare/v0.11.1...v0.11.2) (2026-11-06)
+
+
+### Features
+
+* **acphost:** join existing namespaces with Spec.Join ([#166](https://github.com/elee1766/acphost/issues/166)) ([#171](https://github.com/elee1766/acphost/issues/171)) ([9611627](https://github.com/elee1766/acphost/commit/96116274dd612bbf2bfabf898703cfe18e0a6fb3))
+
 ## [0.11.1](https://github.com/elee1766/acphost/compare/v0.11.0...v0.11.1) (2026-11-06)
 
 
