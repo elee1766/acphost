@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/elee1766/acphost/compare/v0.18.1...v0.19.0) (2026-11-06)
+
+
+### Features
+
+* **acphost:** start a detached host in a given cgroup ([#223](https://github.com/elee1766/acphost/issues/223)) ([#224](https://github.com/elee1766/acphost/issues/224)) ([27be17f](https://github.com/elee1766/acphost/commit/27be17f2828a10022fd6493103ac911cfd939766))
+
 ## [0.18.1](https://github.com/elee1766/acphost/compare/v0.18.0...v0.18.1) (2026-11-06)
 
 
