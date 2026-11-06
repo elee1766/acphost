@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/elee1766/acphost/pkg/hostenv"
+	"github.com/elee1766/acphost/pkg/userns"
 )
 
 func TestCheckSpawnUserBadSubuid(t *testing.T) {
@@ -18,7 +19,7 @@ func TestCheckSpawnUserBadSubuid(t *testing.T) {
 	if err := os.WriteFile(hostenv.SubUIDPath, []byte("bad\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := Spec{Command: "true", Dir: dir, User: &User{MapUID: os.Geteuid(), MapGID: os.Getegid()}}
+	s := Spec{Command: "true", Dir: dir, User: &userns.User{MapUID: os.Geteuid(), MapGID: os.Getegid()}}
 	var pe *PermanentError
 	if err := CheckSpawn(s, false); !errors.As(err, &pe) {
 		t.Fatalf("want PermanentError for bad subuid, got %v", err)

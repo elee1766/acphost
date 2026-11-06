@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ import (
 // TestSandboxPastaDNS runs on a host whose resolv.conf names a loopback
 // resolver. Without sandbox.dns the namespace cannot reach it; with a
 // forward and a resolv.conf naming the forward address, both
-// CheckSandboxDNS and a real agent resolve the name.
+// sandbox.CheckDNS and a real agent resolve the name.
 func TestSandboxPastaDNS(t *testing.T) {
 	bwrap := needBwrap(t)
 	pasta, _ := needPasta(t)
@@ -36,21 +37,21 @@ func TestSandboxPastaDNS(t *testing.T) {
 	require.NoError(t, os.WriteFile(sbConf, []byte("nameserver 169.254.1.1\nsearch example\n"), 0o644))
 
 	// No forward: the stub is the namespace's own loopback.
-	err := CheckSandboxDNS(Sandbox{Network: "pasta", Pasta: pasta, ResolvConf: hostConf}, name)
+	err := sandbox.CheckDNS(sandbox.Sandbox{Network: "pasta", Pasta: pasta, ResolvConf: hostConf}, name)
 	var pe *PermanentError
 	require.ErrorAs(t, err, &pe)
 	assert.Contains(t, err.Error(), "sandbox.dns")
 
-	sb := Sandbox{
+	sb := sandbox.Sandbox{
 		Network: "pasta", Pasta: pasta,
 		Deny:       []string{"10.0.0.0/8", "100.64.0.0/10", "192.168.0.0/16"},
-		DNS:        &DNS{Forward: "169.254.1.1", Host: stub},
+		DNS:        &sandbox.DNS{Forward: "169.254.1.1", Host: stub},
 		ResolvConf: sbConf,
 	}
 	if _, err := exec.LookPath("nft"); err != nil {
 		sb.Deny = nil
 	}
-	require.NoError(t, CheckSandboxDNS(sb, name))
+	require.NoError(t, sandbox.CheckDNS(sb, name))
 
 	// A real agent: getent through the bound resolv.conf.
 	getent, err := exec.LookPath("getent")
@@ -59,7 +60,7 @@ func TestSandboxPastaDNS(t *testing.T) {
 	}
 	dir := t.TempDir()
 	s := sandboxSpec(t, bwrap, dir, getent+" hosts "+name+" >$PWD/result 2>&1\n")
-	s.Sandbox.RO = append(s.Sandbox.RO, Mount{Src: filepath.Dir(getent)})
+	s.Sandbox.RO = append(s.Sandbox.RO, sandbox.Mount{Src: filepath.Dir(getent)})
 	s.Sandbox.Network, s.Sandbox.Pasta = "pasta", pasta
 	s.Sandbox.Deny, s.Sandbox.DNS, s.Sandbox.ResolvConf = sb.Deny, sb.DNS, sb.ResolvConf
 	require.NoError(t, CheckSpawn(s, false))

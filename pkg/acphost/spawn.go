@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/elee1766/acphost/pkg/trace"
 	"github.com/elee1766/acphost/pkg/userns"
 )
@@ -61,7 +62,7 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 		return err
 	}
 	if s.Sandbox != nil {
-		// SandboxArgs looks up bwrap on PATH and checks mounts and Dir.
+		// sandbox.Args looks up bwrap on PATH and checks mounts and Dir.
 		if s.Sandbox.Bwrap != "" {
 			if err := lookCommand(s.Sandbox.Bwrap, nil); err != nil {
 				return &PermanentError{Err: fmt.Errorf("sandbox bwrap %q: %w", s.Sandbox.Bwrap, err)}
@@ -72,7 +73,7 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 				return &PermanentError{Err: fmt.Errorf("sandbox pasta %q: %w", s.Sandbox.Pasta, err)}
 			}
 		}
-		if _, err := SandboxArgs(*s.Sandbox, s.Command, s.Args, s.Dir); err != nil {
+		if _, err := sandbox.Args(*s.Sandbox, s.Command, s.Args, s.Dir); err != nil {
 			return &PermanentError{Err: err}
 		}
 		// The command is resolved inside the sandbox, so it is not looked

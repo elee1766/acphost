@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elee1766/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,11 +96,11 @@ func TestCheckJoinRejects(t *testing.T) {
 			return s
 		}, "cannot combine join with user"},
 		"net with pasta": {func(s Spec) Spec {
-			s.Join, s.Sandbox = map[string]string{"net": "/proc/self/ns/net"}, &Sandbox{Network: "pasta"}
+			s.Join, s.Sandbox = map[string]string{"net": "/proc/self/ns/net"}, &sandbox.Sandbox{Network: "pasta"}
 			return s
 		}, "conflicts with sandbox network"},
 		"net with none": {func(s Spec) Spec {
-			s.Join, s.Sandbox = map[string]string{"net": "/proc/self/ns/net"}, &Sandbox{Network: "none"}
+			s.Join, s.Sandbox = map[string]string{"net": "/proc/self/ns/net"}, &sandbox.Sandbox{Network: "none"}
 			return s
 		}, "conflicts with sandbox network"},
 		"own user ns": {func(s Spec) Spec { s.Join = map[string]string{"user": "/proc/self/ns/user"}; return s }, "needs CAP_SYS_ADMIN"},

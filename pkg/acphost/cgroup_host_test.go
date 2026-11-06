@@ -27,7 +27,7 @@ func TestEventsValue(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0o644))
 	assert.True(t, cgroup.Populated(dir))
 	assert.False(t, cgroup.WaitEmpty(dir, 30*time.Millisecond))
-	assert.Equal(t, CgroupStats{}, cgroup.ReadStats(t.TempDir()), "missing files")
+	assert.Equal(t, cgroup.Stats{}, cgroup.ReadStats(t.TempDir()), "missing files")
 }
 
 func TestReadCgroupStats(t *testing.T) {
@@ -39,7 +39,7 @@ func TestReadCgroupStats(t *testing.T) {
 	write("cpu.stat", "usage_usec 12345\nuser_usec 10000\nsystem_usec 2345\n")
 	write("memory.events", "low 0\nhigh 0\nmax 7\noom 2\noom_kill 2\n")
 	// No memory.peak: kernels before 5.19 lack it.
-	assert.Equal(t, CgroupStats{MemoryCurrent: 1048576, CPUUsageUsec: 12345, OOMKills: 2, MemoryMaxEvents: 7}, cgroup.ReadStats(dir))
+	assert.Equal(t, cgroup.Stats{MemoryCurrent: 1048576, CPUUsageUsec: 12345, OOMKills: 2, MemoryMaxEvents: 7}, cgroup.ReadStats(dir))
 	write("memory.peak", "2097152\n")
 	assert.Equal(t, int64(2097152), cgroup.ReadStats(dir).MemoryPeak)
 }
@@ -47,7 +47,7 @@ func TestReadCgroupStats(t *testing.T) {
 func TestCgroupStatsNotifyAndExit(t *testing.T) {
 	parent := needCgroup(t)
 	dir := t.TempDir()
-	s := cgroupSpec(t, dir, parent, "exec cat >/dev/null\n", Cgroup{PidsMax: 64})
+	s := cgroupSpec(t, dir, parent, "exec cat >/dev/null\n", cgroup.Cgroup{PidsMax: 64})
 	require.NoError(t, WriteSpec(dir, s))
 	done := make(chan error, 1)
 	go func() { done <- Main(dir, func(o *options) { o.statsEvery = 50 * time.Millisecond }) }()
@@ -64,13 +64,13 @@ func TestCgroupStatsNotifyAndExit(t *testing.T) {
 	require.NoError(t, err)
 	rd := bufio.NewReader(nc)
 	_ = nc.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var got CgroupStats
+	var got cgroup.Stats
 	for {
 		line, err := rd.ReadBytes('\n')
 		require.NoError(t, err)
 		var m struct {
-			Method string      `json:"method"`
-			Params CgroupStats `json:"params"`
+			Method string       `json:"method"`
+			Params cgroup.Stats `json:"params"`
 		}
 		if json.Unmarshal(line, &m) == nil && m.Method == MethodCgroupStats {
 			got = m.Params
@@ -104,7 +104,7 @@ func needCgroup(t *testing.T) string {
 	if p := os.Getenv("ACPHOST_TEST_CGROUP"); p != "" {
 		return p
 	}
-	info, err := DelegatedCgroup()
+	info, err := cgroup.Delegated()
 	if err != nil || !info.Writable {
 		t.Skipf("no writable delegated cgroup: %v", err)
 	}
@@ -128,7 +128,7 @@ func needCgroup(t *testing.T) string {
 	return parent
 }
 
-func cgroupSpec(t *testing.T, dir, parent, script string, c Cgroup) Spec {
+func cgroupSpec(t *testing.T, dir, parent, script string, c cgroup.Cgroup) Spec {
 	agent := filepath.Join(dir, "agent")
 	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\n"+script), 0o700))
 	c.Parent = parent
@@ -138,7 +138,7 @@ func cgroupSpec(t *testing.T, dir, parent, script string, c Cgroup) Spec {
 func TestCgroupExitCodeAndRemove(t *testing.T) {
 	parent := needCgroup(t)
 	dir := t.TempDir()
-	s := cgroupSpec(t, dir, parent, "grep -q acphost /proc/self/cgroup || exit 9\nexit 3\n", Cgroup{PidsMax: 64})
+	s := cgroupSpec(t, dir, parent, "grep -q acphost /proc/self/cgroup || exit 9\nexit 3\n", cgroup.Cgroup{PidsMax: 64})
 	require.NoError(t, CheckSpawn(s, false))
 	require.NoError(t, WriteSpec(dir, s))
 	require.NoError(t, Main(dir))
@@ -155,7 +155,7 @@ func TestCgroupAgentInSessionCgroup(t *testing.T) {
 	parent := needCgroup(t)
 	dir := t.TempDir()
 	s := cgroupSpec(t, dir, parent,
-		"cat /proc/self/cgroup >\"$0.cg\"\nd=/sys/fs/cgroup$(sed -n 's/^0:://p' /proc/self/cgroup)\ncat \"$d/pids.max\" >\"$0.pids\"\n", Cgroup{PidsMax: 37})
+		"cat /proc/self/cgroup >\"$0.cg\"\nd=/sys/fs/cgroup$(sed -n 's/^0:://p' /proc/self/cgroup)\ncat \"$d/pids.max\" >\"$0.pids\"\n", cgroup.Cgroup{PidsMax: 37})
 	require.NoError(t, WriteSpec(dir, s))
 	require.NoError(t, Main(dir))
 	cg, err := os.ReadFile(filepath.Join(dir, "agent.cg"))
@@ -177,7 +177,7 @@ func TestCgroupOOM(t *testing.T) {
 	// With swap the agent pages out at memory.max instead of being OOM
 	// killed (seen on GitHub runners, #41), so cap swap with SwapMax. Skip
 	// the cap where the kernel has no swap accounting (no memory.swap.max).
-	c := Cgroup{MemoryMax: "33554432"}
+	c := cgroup.Cgroup{MemoryMax: "33554432"}
 	if _, err := os.Stat(filepath.Join(parent, "memory.swap.max")); err == nil {
 		c.SwapMax = "0"
 	}
@@ -201,7 +201,7 @@ func TestCgroupKillEscapedGrandchild(t *testing.T) {
 	dir := t.TempDir()
 	token := "acphost-cg-" + filepath.Base(dir)
 	s := cgroupSpec(t, dir, parent,
-		"setsid sh -c 'sleep 600; :' "+token+" </dev/null >/dev/null 2>&1 &\nexec cat >/dev/null\n", Cgroup{PidsMax: 64})
+		"setsid sh -c 'sleep 600; :' "+token+" </dev/null >/dev/null 2>&1 &\nexec cat >/dev/null\n", cgroup.Cgroup{PidsMax: 64})
 	require.NoError(t, WriteSpec(dir, s))
 	done := make(chan error, 1)
 	go func() { done <- Main(dir) }()
@@ -229,7 +229,7 @@ func TestCgroupKillEscapedGrandchild(t *testing.T) {
 // moved back afterwards.
 func TestCgroupSetupDelegation(t *testing.T) {
 	parent := needCgroup(t)
-	orig, err := DelegatedCgroup()
+	orig, err := cgroup.Delegated()
 	require.NoError(t, err)
 	own := filepath.Join(parent, fmt.Sprintf("deleg-%d", time.Now().UnixNano()))
 	require.NoError(t, os.Mkdir(own, 0o755))
@@ -239,17 +239,17 @@ func TestCgroupSetupDelegation(t *testing.T) {
 			_ = os.Remove(filepath.Join(own, d))
 		}
 	})
-	sessions, err := SetupDelegation(own, []string{"memory", "pids"})
+	sessions, err := cgroup.SetupDelegation(own, []string{"memory", "pids"})
 	if err != nil && strings.Contains(err.Error(), "cgroup.procs") {
 		t.Skipf("cannot move into %s: %v", own, err)
 	}
 	require.NoError(t, err)
-	again, err := SetupDelegation(own, []string{"memory", "pids"})
+	again, err := cgroup.SetupDelegation(own, []string{"memory", "pids"})
 	require.NoError(t, err, "repeat call")
 	assert.Equal(t, sessions, again)
 
 	dir := t.TempDir()
-	s := cgroupSpec(t, dir, sessions, "grep -q sessions/s1 /proc/self/cgroup || exit 9\nexit 3\n", Cgroup{PidsMax: 64, MemoryMax: "268435456"})
+	s := cgroupSpec(t, dir, sessions, "grep -q sessions/s1 /proc/self/cgroup || exit 9\nexit 3\n", cgroup.Cgroup{PidsMax: 64, MemoryMax: "268435456"})
 	require.NoError(t, CheckSpawn(s, false))
 	require.NoError(t, WriteSpec(dir, s))
 	require.NoError(t, Main(dir))

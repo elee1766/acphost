@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/elee1766/acphost/pkg/sandbox"
 )
 
 // dnsFixture is the all-OK fixture with a fake dns check that fails
@@ -13,7 +15,7 @@ import (
 func dnsFixture(t *testing.T, name string, err error) (preflightFixture, *int) {
 	f := newPreflightFixture(t)
 	calls := new(int)
-	f.env.dnsCheck = func(Sandbox, string) error { *calls++; return err }
+	f.env.dnsCheck = func(sandbox.Sandbox, string) error { *calls++; return err }
 	if name != "" {
 		WithDNSCheck(name)(&f.env)
 	}
@@ -46,7 +48,7 @@ func TestPreflightDNSNoPasta(t *testing.T) {
 
 func TestPreflightDNSNotPastaNetwork(t *testing.T) {
 	f, calls := dnsFixture(t, "example.com", errors.New("boom"))
-	r, _ := preflight(Isolated{Sandbox: &Sandbox{Network: "none"}}, f.env)
+	r, _ := preflight(Isolated{Sandbox: &sandbox.Sandbox{Network: "none"}}, f.env)
 	if *calls != 0 || len(r.Checks) != 1 {
 		t.Fatalf("calls=%d report = %+v", *calls, r)
 	}

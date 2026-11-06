@@ -33,7 +33,7 @@ func TestOOMReason(t *testing.T) {
 
 	// Count rose: ReasonOOM.
 	write("3")
-	if got := cgroup.OOMReason("agent exited", start, end()); got != ReasonOOM {
-		t.Fatalf("rose: %q, want %q", got, ReasonOOM)
+	if got := cgroup.OOMReason("agent exited", start, end()); got != cgroup.ReasonOOM {
+		t.Fatalf("rose: %q, want %q", got, cgroup.ReasonOOM)
 	}
 }

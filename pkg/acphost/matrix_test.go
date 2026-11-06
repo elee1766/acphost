@@ -142,7 +142,7 @@ func matrixSpec(t *testing.T, f features, dir, script string) Spec {
 	}
 	if f.cgroup {
 		parent := needCgroup(t)
-		s.Cgroup = &Cgroup{Parent: parent, PidsMax: 128}
+		s.Cgroup = &cgroup.Cgroup{Parent: parent, PidsMax: 128}
 		// The session name is the cgroup name, so keep it unique per
 		// test in a shared parent.
 		s.Session = fmt.Sprintf("s%d", time.Now().UnixNano())

@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/elee1766/acphost/pkg/userns"
 	"golang.org/x/sys/unix"
 )
 
@@ -82,13 +85,13 @@ type Spec struct {
 	GCRootPrefix string `json:"gcroot_prefix,omitempty"`
 	// Sandbox, if set, runs the agent inside a sandbox. Nil runs it
 	// directly.
-	Sandbox *Sandbox `json:"sandbox,omitempty"`
+	Sandbox *sandbox.Sandbox `json:"sandbox,omitempty"`
 	// User, if set, runs the agent as another uid/gid in a user
 	// namespace. Nil leaves ids unchanged.
-	User *User `json:"user,omitempty"`
+	User *userns.User `json:"user,omitempty"`
 	// Cgroup, if set, gives the agent its own cgroup v2 with limits. Nil
 	// touches no cgroupfs.
-	Cgroup *Cgroup `json:"cgroup,omitempty"`
+	Cgroup *cgroup.Cgroup `json:"cgroup,omitempty"`
 	// Join maps a namespace type (user, mnt, pid, net, ipc, uts, cgroup;
 	// see JoinTypes) to a namespace file the agent joins instead of
 	// getting a new one: a /proc/<pid>/ns/<type> link or a bind-mounted
@@ -147,7 +150,7 @@ type Exit struct {
 	OOMKill bool `json:"oom_kill,omitempty"`
 	// Cgroup is the session cgroup's final usage, read just before it was
 	// removed (Spec.Cgroup only).
-	Cgroup *CgroupStats `json:"cgroup,omitempty"`
+	Cgroup *cgroup.Stats `json:"cgroup,omitempty"`
 	// Error is the setup error when Reason is ReasonSpawnFailed.
 	Error string `json:"error,omitempty"`
 }
