@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/elee1766/acphost/compare/v0.19.0...v0.19.1) (2026-11-06)
+
+
+### Bug fixes
+
+* **proc:** stop Detached.Wait racing its flock goroutine on ctx ([#227](https://github.com/elee1766/acphost/issues/227)) ([#228](https://github.com/elee1766/acphost/issues/228)) ([7824bae](https://github.com/elee1766/acphost/commit/7824bae32667f55213856be232aaf9b3ca301d64))
+
 ## [0.19.0](https://github.com/elee1766/acphost/compare/v0.18.1...v0.19.0) (2026-11-06)
 
 
