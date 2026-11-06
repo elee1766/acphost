@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.0](https://github.com/elee1766/acphost/compare/v0.13.0...v0.14.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **acphost:** Go callers must use the sandbox, cgroup and userns packages. The JSON wire format is unchanged (same types), so no Protocol bump. jobshop no longer uses the aliases (elee1766/jobshop#793).
+
+### refactor
+
+* **acphost:** remove root isolation type aliases ([#160](https://github.com/elee1766/acphost/issues/160)) ([#192](https://github.com/elee1766/acphost/issues/192)) ([da18728](https://github.com/elee1766/acphost/commit/da18728448c1963d439993af5fc94d97b2c3b282))
+
 ## [0.13.0](https://github.com/elee1766/acphost/compare/v0.12.1...v0.13.0) (2026-11-06)
 
 
