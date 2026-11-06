@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/elee1766/acphost/compare/v0.11.3...v0.12.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **pkg:** import paths moved under pkg/ (github.com/elee1766/acphost -> github.com/elee1766/acphost/pkg/acphost, github.com/elee1766/acphost/proc -> .../pkg/proc, and so on). Old to new table and the pkg/acphost vs pkg/host choice: docs/notes/164-pkg-layout.md.
+
+### refactor
+
+* **pkg:** move packages under pkg/ and drop internal/ ([#164](https://github.com/elee1766/acphost/issues/164)) ([#175](https://github.com/elee1766/acphost/issues/175)) ([2bfe982](https://github.com/elee1766/acphost/commit/2bfe9820be195fff6b3cce3a4f6efd51ab968767))
+
 ## [0.11.3](https://github.com/elee1766/acphost/compare/v0.11.2...v0.11.3) (2026-11-06)
 
 
