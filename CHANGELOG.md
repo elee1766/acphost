@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/elee1766/acphost/compare/v0.8.8...v0.9.0) (2026-11-06)
+
+
+### Bug fixes
+
+* **release:** trigger the 0.9.0 release ([#145](https://github.com/elee1766/acphost/issues/145)) ([#146](https://github.com/elee1766/acphost/issues/146)) ([f239f84](https://github.com/elee1766/acphost/commit/f239f8432c96fac2f5979847a5414158f6145204))
+
 ## [0.8.8](https://github.com/elee1766/acphost/compare/v0.8.7...v0.8.8) (2026-11-05)
 
 
