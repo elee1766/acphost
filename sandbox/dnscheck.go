@@ -5,28 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/elee1766/acphost/internal/reexec"
 	"github.com/elee1766/acphost/internal/xerr"
 )
-
-// dnsCheckEnv marks a re-exec of the host binary that resolves a name
-// with the nameserver from a resolv.conf and exits 0 on success. See
-// CheckDNS.
-const dnsCheckEnv = "_ACPHOST_DNS_CHECK"
-
-func init() {
-	if os.Getenv(dnsCheckEnv) == "" {
-		return
-	}
-	// Never returns.
-	dnsCheckChild()
-}
 
 // CheckDNS resolves name inside a pasta namespace set up as s
 // would set it up for an agent (same DNS forward and deny rules), using
@@ -54,6 +41,10 @@ func CheckDNS(s Sandbox, name string) error {
 	if err != nil {
 		return xerr.Permanentf("sandbox dns: %v; set sandbox.resolv_conf to a file naming sandbox.dns.forward", err)
 	}
+	// The lookup runs in a re-exec of this binary (proc.MaybeChild).
+	if err := reexec.Check(); err != nil {
+		return err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("sandbox dns: %w", err)
@@ -61,9 +52,8 @@ func CheckDNS(s Sandbox, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	// pasta execs the command itself, so /proc/self/exe would be pasta.
-	argv := append(slices.Clone(prefix), self)
+	argv := append(slices.Clone(prefix), self, reexec.DNSCheck, ns, name)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), dnsCheckEnv+"="+ns+" "+name)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
@@ -96,23 +86,4 @@ func firstNameserver(path string) (string, error) {
 		return "", err
 	}
 	return "", errors.New(path + " has no nameserver line")
-}
-
-func dnsCheckChild() {
-	ns, name, _ := strings.Cut(os.Getenv(dnsCheckEnv), " ")
-	r := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, network, net.JoinHostPort(ns, "53"))
-		},
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, err := r.LookupHost(ctx, name)
-	cancel()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Exit(0)
 }

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/internal/reexec"
 	"github.com/elee1766/acphost/sandbox"
 	"golang.org/x/sys/unix"
 )
@@ -314,8 +315,9 @@ func (h *Host) startAgent() (io.Reader, error) {
 	// iso records what this function applies, from the code that applies
 	// it. Written once the agent has started.
 	var iso Isolation
-	// pdeathEnv selects the pdeath helper for pasta (see pdeathChildEnv).
-	var pdeathEnv string
+	// pdeathCfg is the pdeath helper's config pipe, read end (see
+	// reexec.PdeathWrap). Closed once started.
+	var pdeathCfg *os.File
 	if h.spec.Sandbox != nil {
 		sb := sandboxWithEnv(*h.spec.Sandbox, h.spec.Env)
 		// The status lines tell a bwrap setup failure from an agent exit
@@ -330,20 +332,25 @@ func (h *Host) startAgent() (io.Reader, error) {
 			return nil, err
 		}
 		iso.Bwrap, iso.Network = argv, net
-		if net != nil && net.Mode == "pasta" {
-			argv, pdeathEnv = pdeathCommand(argv)
-			n := len(argv) - len(iso.Bwrap)
-			iso.PdeathHelper = argv[:n:n] // the helper prefix, then pasta and bwrap
-		}
 		// bwrap does the chdir (Dir is a path inside the sandbox).
 		cmd = exec.Command(argv[0], argv[1:]...)
+		if net != nil && net.Mode == "pasta" {
+			path, wrapped, r, w, err := reexec.PdeathWrap(argv)
+			if err != nil {
+				return nil, err
+			}
+			_ = w.Close() // the config is already in the pipe
+			pdeathCfg = r
+			defer func() { _ = pdeathCfg.Close() }()
+			cmd.Path, cmd.Args, cmd.Err = path, wrapped, nil
+			cmd.ExtraFiles = reexec.SetExtraFile(cmd.ExtraFiles, reexec.PdeathFd, r)
+			// The helper file, then pasta and bwrap (Bwrap).
+			iso.PdeathHelper = []string{path}
+		}
 	} else {
 		cmd.Dir = h.spec.Dir
 	}
 	cmd.Env = append(os.Environ(), h.spec.Env...)
-	if pdeathEnv != "" {
-		cmd.Env = append(cmd.Env, pdeathEnv)
-	}
 	cmd.Stderr = os.Stderr // host.log
 	if h.spec.Sandbox != nil || h.spec.User != nil {
 		tap, w, err := newStderrTap(os.Stderr)
@@ -356,6 +363,9 @@ func (h *Host) startAgent() (io.Reader, error) {
 		h.tap = tap
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	if pdeathCfg != nil {
+		cmd.SysProcAttr.Pdeathsig = reexec.PdeathSignal
+	}
 	if h.spec.Cgroup != nil {
 		dir, limits, err := cgroup.Prepare(*h.spec.Cgroup, h.spec.Session)
 		if dir != "" {

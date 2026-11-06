@@ -58,9 +58,14 @@ import (
 	"path/filepath"
 
 	"github.com/elee1766/acphost"
+	"github.com/elee1766/acphost/proc"
 )
 
 func main() {
+	// First: the host re-execs this binary as a helper for a user
+	// namespace or network pasta (#157).
+	proc.MaybeChild()
+
 	dir := "/tmp/acphost-demo" // session directory
 
 	// 1. Write the spec.
