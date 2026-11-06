@@ -1,8 +1,7 @@
-package acphost
+package sandbox
 
 import (
 	"encoding/json"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -106,7 +105,7 @@ func TestSandboxArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := SandboxArgs(tt.s, "agent", []string{"-x"}, tt.dir)
+			got, err := Args(tt.s, "agent", []string{"-x"}, tt.dir)
 			if tt.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.err) {
 					t.Fatalf("err = %v, want containing %q", err, tt.err)
@@ -137,16 +136,16 @@ func TestSandboxJSON(t *testing.T) {
 	if !reflect.DeepEqual(s, want) {
 		t.Fatalf("got %+v", s)
 	}
-	b, err := json.Marshal(Spec{Sandbox: &s})
+	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back Spec
+	var back Sandbox
 	if err := json.Unmarshal(b, &back); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(*back.Sandbox, want) {
-		t.Fatalf("round trip got %+v", *back.Sandbox)
+	if !reflect.DeepEqual(back, want) {
+		t.Fatalf("round trip got %+v", back)
 	}
 }
 
@@ -160,7 +159,7 @@ func TestSandboxPastaArgs(t *testing.T) {
 		"--bind", tmp, tmp, "--clearenv", "--chdir", tmp, "--", "agent",
 	}
 
-	got, err := SandboxArgs(base, "agent", nil, tmp)
+	got, err := Args(base, "agent", nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +170,7 @@ func TestSandboxPastaArgs(t *testing.T) {
 	if _, err := exec.LookPath("nft"); err == nil {
 		s := base
 		s.Deny = []string{"10.1.2.3/8", "fd00::/8", "192.0.2.1/32"}
-		got, err := SandboxArgs(s, "agent", nil, tmp)
+		got, err := Args(s, "agent", nil, tmp)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,24 +201,10 @@ func TestSandboxDenyValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.s.Bwrap = "/bin/bwrap"
 			tc.s.RW = []Mount{{Src: tmp}}
-			_, err := SandboxArgs(tc.s, "agent", nil, tmp)
+			_, err := Args(tc.s, "agent", nil, tmp)
 			if err == nil || !strings.Contains(err.Error(), tc.err) {
 				t.Fatalf("got %v, want %q", err, tc.err)
 			}
 		})
-	}
-
-	// CheckSpawn reports a missing pasta as permanent, like a missing bwrap.
-	s := Spec{Command: "agent", Dir: tmp, Sandbox: &Sandbox{
-		Bwrap: "/bin/sh", RW: []Mount{{Src: tmp}}, Network: "pasta", Pasta: filepath.Join(tmp, "nopasta"),
-	}}
-	var pe *PermanentError
-	if err := CheckSpawn(s, false); !errors.As(err, &pe) || !strings.Contains(err.Error(), "pasta") {
-		t.Fatalf("missing pasta: got %v", err)
-	}
-	s.Sandbox.Pasta = ""
-	t.Setenv("PATH", tmp)
-	if err := CheckSpawn(s, false); !errors.As(err, &pe) || !strings.Contains(err.Error(), "pasta") {
-		t.Fatalf("pasta not on PATH: got %v", err)
 	}
 }

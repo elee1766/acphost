@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,11 +52,11 @@ func TestMapLines(t *testing.T) {
 
 func TestUsernsCommandApplied(t *testing.T) {
 	dir := t.TempDir()
-	oldU, oldG := subuidPath, subgidPath
-	t.Cleanup(func() { subuidPath, subgidPath = oldU, oldG })
-	subuidPath, subgidPath = filepath.Join(dir, "subuid"), filepath.Join(dir, "subgid")
-	require.NoError(t, os.WriteFile(subuidPath, nil, 0o600))
-	require.NoError(t, os.WriteFile(subgidPath, nil, 0o600))
+	oldU, oldG := hostenv.SubUIDPath, hostenv.SubGIDPath
+	t.Cleanup(func() { hostenv.SubUIDPath, hostenv.SubGIDPath = oldU, oldG })
+	hostenv.SubUIDPath, hostenv.SubGIDPath = filepath.Join(dir, "subuid"), filepath.Join(dir, "subgid")
+	require.NoError(t, os.WriteFile(hostenv.SubUIDPath, nil, 0o600))
+	require.NoError(t, os.WriteFile(hostenv.SubGIDPath, nil, 0o600))
 	u := User{UID: 0, GID: 0, MapUID: os.Geteuid(), MapGID: os.Getegid()}
 	cmd := exec.Command("true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -72,7 +74,7 @@ func TestSandboxArgsNetworkApplied(t *testing.T) {
 	for _, tc := range []struct{ network, mode string }{{"", "host"}, {"host", "host"}, {"none", "none"}, {"pasta", "pasta"}} {
 		s := base
 		s.Network = tc.network
-		argv, net, err := sandboxArgs(s, "agent", nil, tmp)
+		argv, net, err := sandbox.BuildArgs(s, "agent", nil, tmp)
 		require.NoError(t, err, tc.network)
 		assert.Equal(t, &NetworkApplied{Mode: tc.mode}, net, tc.network)
 		want, _ := SandboxArgs(s, "agent", nil, tmp)
@@ -82,7 +84,7 @@ func TestSandboxArgsNetworkApplied(t *testing.T) {
 		s := base
 		s.Network = "pasta"
 		s.Deny = []string{"fd00::/8", "10.1.2.3/8"}
-		_, net, err := sandboxArgs(s, "agent", nil, tmp)
+		_, net, err := sandbox.BuildArgs(s, "agent", nil, tmp)
 		require.NoError(t, err)
 		assert.Equal(t, &NetworkApplied{Mode: "pasta", Deny: []string{"10.0.0.0/8", "fd00::/8"}}, net)
 	}

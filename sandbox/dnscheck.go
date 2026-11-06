@@ -1,4 +1,4 @@
-package acphost
+package sandbox
 
 import (
 	"bufio"
@@ -11,11 +11,13 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/elee1766/acphost/internal/xerr"
 )
 
 // dnsCheckEnv marks a re-exec of the host binary that resolves a name
 // with the nameserver from a resolv.conf and exits 0 on success. See
-// CheckSandboxDNS.
+// CheckDNS.
 const dnsCheckEnv = "_ACPHOST_DNS_CHECK"
 
 func init() {
@@ -26,7 +28,7 @@ func init() {
 	dnsCheckChild()
 }
 
-// CheckSandboxDNS resolves name inside a pasta namespace set up as s
+// CheckDNS resolves name inside a pasta namespace set up as s
 // would set it up for an agent (same DNS forward and deny rules), using
 // the first nameserver in s.ResolvConf, or the host's /etc/resolv.conf
 // when ResolvConf is empty. It returns nil for any network but pasta.
@@ -36,13 +38,13 @@ func init() {
 // sandbox.resolv_conf settings: on a host whose resolver is a loopback
 // stub (systemd-resolved's 127.0.0.53) the namespace cannot reach it
 // without a forward. See docs/notes/124-sandbox-dns.md.
-func CheckSandboxDNS(s Sandbox, name string) error {
+func CheckDNS(s Sandbox, name string) error {
 	if s.Network != "pasta" {
 		return nil
 	}
-	prefix, _, err := pastaPrefix(s)
+	prefix, _, err := PastaPrefix(s)
 	if err != nil {
-		return &PermanentError{Err: err}
+		return &xerr.PermanentError{Err: err}
 	}
 	conf := s.ResolvConf
 	if conf == "" {
@@ -50,7 +52,7 @@ func CheckSandboxDNS(s Sandbox, name string) error {
 	}
 	ns, err := firstNameserver(conf)
 	if err != nil {
-		return Permanentf("sandbox dns: %v; set sandbox.resolv_conf to a file naming sandbox.dns.forward", err)
+		return xerr.Permanentf("sandbox dns: %v; set sandbox.resolv_conf to a file naming sandbox.dns.forward", err)
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -70,7 +72,7 @@ func CheckSandboxDNS(s Sandbox, name string) error {
 	if msg == "" {
 		msg = err.Error()
 	}
-	return Permanentf("sandbox dns: cannot resolve %s via nameserver %s from %s inside pasta: %s; "+
+	return xerr.Permanentf("sandbox dns: cannot resolve %s via nameserver %s from %s inside pasta: %s; "+
 		"if the host resolver is on loopback (such as 127.0.0.53), set sandbox.dns "+
 		"(forward: an address inside the namespace, host: the host resolver) and "+
 		"sandbox.resolv_conf to a file naming the forward address", name, ns, conf, msg)

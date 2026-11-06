@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/internal/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,11 +26,11 @@ func TestNoFieldsTouchesNothing(t *testing.T) {
 	var mu sync.Mutex
 	var seen []string
 	f := func(s string) { mu.Lock(); seen = append(seen, s); mu.Unlock() }
-	traceHook.Store(&f)
-	t.Cleanup(func() { traceHook.Store(nil) })
+	trace.Hook.Store(&f)
+	t.Cleanup(func() { trace.Hook.Store(nil) })
 	// No subuid file and no cgroup must not matter either.
-	subuidPath, subgidPath = "/nonexistent/subuid", "/nonexistent/subgid"
-	t.Cleanup(func() { subuidPath, subgidPath = "/etc/subuid", "/etc/subgid" })
+	hostenv.SubUIDPath, hostenv.SubGIDPath = "/nonexistent/subuid", "/nonexistent/subgid"
+	t.Cleanup(func() { hostenv.SubUIDPath, hostenv.SubGIDPath = "/etc/subuid", "/etc/subgid" })
 
 	dir := t.TempDir()
 	agent := filepath.Join(dir, "agent")
@@ -145,8 +148,8 @@ func matrixSpec(t *testing.T, f features, dir, script string) Spec {
 		s.Session = fmt.Sprintf("s%d", time.Now().UnixNano())
 		t.Cleanup(func() {
 			d := filepath.Join(parent, s.Session)
-			cgroupKill(d)
-			waitCgroupEmpty(d, 5*time.Second)
+			cgroup.Kill(d)
+			cgroup.WaitEmpty(d, 5*time.Second)
 			_ = os.Remove(d)
 		})
 	}
@@ -190,7 +193,7 @@ func checkIsolation(t *testing.T, f features, dir string, s Spec) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	if f.cgroup {
-		assert.Equal(t, &CgroupApplied{Dir: filepath.Join(s.Cgroup.Parent, s.Session), Limits: []LimitApplied{{"pids.max", "128"}}}, iso.Cgroup)
+		assert.Equal(t, &CgroupApplied{Dir: filepath.Join(s.Cgroup.Parent, s.Session), Limits: []LimitApplied{{File: "pids.max", Value: "128"}}}, iso.Cgroup)
 	} else {
 		assert.Nil(t, iso.Cgroup)
 	}

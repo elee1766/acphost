@@ -1,4 +1,4 @@
-package acphost
+package userns
 
 import (
 	"errors"
@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/elee1766/acphost/internal/xerr"
 	"golang.org/x/sys/unix"
 )
 
@@ -57,12 +58,12 @@ func blockStarts(rs []Range, size int) []int {
 // No free block is a PermanentError.
 func AllocSubIDs(lockDir string, uids, gids []Range, size int) (*Alloc, error) {
 	if size <= 0 {
-		return nil, Permanentf("subid alloc: size %d must be positive", size)
+		return nil, xerr.Permanentf("subid alloc: size %d must be positive", size)
 	}
 	us, gs := blockStarts(uids, size), blockStarts(gids, size)
 	n := min(len(us), len(gs))
 	if n == 0 {
-		return nil, Permanentf("subid alloc: ranges hold no block of %d ids", size)
+		return nil, xerr.Permanentf("subid alloc: ranges hold no block of %d ids", size)
 	}
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return nil, fmt.Errorf("subid alloc: %w", err)
@@ -84,5 +85,5 @@ func AllocSubIDs(lockDir string, uids, gids []Range, size int) (*Alloc, error) {
 			return nil, fmt.Errorf("subid alloc: lock %s: %w", name, err)
 		}
 	}
-	return nil, Permanentf("subid alloc: all %d blocks of %d ids are in use", n, size)
+	return nil, xerr.Permanentf("subid alloc: all %d blocks of %d ids are in use", n, size)
 }

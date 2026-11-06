@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/userns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,9 +34,9 @@ func runAgent(t *testing.T, shared, name string, u User, script string) {
 func TestIsolationTwoSubIDSessions(t *testing.T) {
 	needUserns(t)
 	self := os.Geteuid()
-	subuid, err := readSubIDs(subuidPath, self)
+	subuid, err := userns.ReadSubIDs(hostenv.SubUIDPath, self)
 	require.NoError(t, err)
-	subgid, err := readSubIDs(subgidPath, self)
+	subgid, err := userns.ReadSubIDs(hostenv.SubGIDPath, self)
 	require.NoError(t, err)
 	lockDir := t.TempDir()
 	var users [2]User
@@ -45,7 +47,7 @@ func TestIsolationTwoSubIDSessions(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = a.Release() })
 		users[i] = a.User(1000, 1000)
-		rep, err := Preflight(Spec{User: &users[i]})
+		rep, err := PreflightIsolation(Isolated{User: &users[i]})
 		require.NoError(t, err)
 		if !rep.OK() {
 			t.Skipf("preflight: %+v", rep.Checks)

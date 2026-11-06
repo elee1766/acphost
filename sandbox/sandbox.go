@@ -1,4 +1,4 @@
-package acphost
+package sandbox
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/elee1766/acphost/internal/trace"
 )
 
 // Sandbox describes how to confine the agent process. Only the
@@ -112,18 +114,18 @@ func within(p, root string) bool {
 	return p == root || strings.HasPrefix(p, root+"/")
 }
 
-// SandboxArgs returns the full bwrap argv, starting with the bwrap path,
+// Args returns the full bwrap argv, starting with the bwrap path,
 // that runs cmd with args in dir. It reads only the filesystem (to check
 // sources) and the environment (for EnvKeep and PATH); the same inputs
 // give the same output. dir must lie inside an RW mount's destination.
-func SandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, error) {
-	argv, _, err := sandboxArgs(s, cmd, args, dir)
+func Args(s Sandbox, cmd string, args []string, dir string) ([]string, error) {
+	argv, _, err := BuildArgs(s, cmd, args, dir)
 	return argv, err
 }
 
-// sandboxArgs is SandboxArgs that also reports the network setup the
+// BuildArgs is Args that also reports the network setup the
 // argv applies, for isolation.json.
-func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *NetworkApplied, error) {
+func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *NetworkApplied, error) {
 	fail := func(err error) ([]string, *NetworkApplied, error) { return nil, nil, err }
 	if s.Backend != "" && s.Backend != "bubblewrap" {
 		return fail(fmt.Errorf("sandbox: unknown backend %q", s.Backend))
@@ -156,7 +158,7 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	var prefix []string
 	if pasta {
 		var err error
-		if prefix, net.Deny, err = pastaPrefix(s); err != nil {
+		if prefix, net.Deny, err = PastaPrefix(s); err != nil {
 			return fail(err)
 		}
 		if s.DNS != nil {
@@ -165,7 +167,7 @@ func sandboxArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *N
 	}
 	bwrap := s.Bwrap
 	if bwrap == "" {
-		p, err := lookPath("bwrap")
+		p, err := trace.LookPath("bwrap")
 		if err != nil {
 			return fail(fmt.Errorf("sandbox: %w", err))
 		}
@@ -276,23 +278,23 @@ func resolvConfDst(path string) string {
 	return path
 }
 
-// nftBinary is the command spawn and Preflight both resolve on PATH for Deny.
-const nftBinary = "nft"
+// NFTBinary is the command spawn and Preflight both resolve on PATH for Deny.
+const NFTBinary = "nft"
 
-// pastaPrefix returns the argv that runs bwrap under pasta. pasta creates
+// PastaPrefix returns the argv that runs bwrap under pasta. pasta creates
 // the network namespace, configures it, and only then starts its command,
 // so the agent never sees a namespace without its interface or rules.
 // With Deny, a shell loads nftables rules before exec'ing bwrap; exit 125
 // means the rules failed to load.
 // It also returns the normalized deny CIDRs the rules reject.
-func pastaPrefix(s Sandbox) ([]string, []string, error) {
+func PastaPrefix(s Sandbox) ([]string, []string, error) {
 	deny, cidrs, err := denyRules(s.Deny)
 	if err != nil {
 		return nil, nil, err
 	}
 	p := s.Pasta
 	if p == "" {
-		if p, err = lookPath("pasta"); err != nil {
+		if p, err = trace.LookPath("pasta"); err != nil {
 			return nil, nil, fmt.Errorf("sandbox: %w", err)
 		}
 	}
@@ -310,11 +312,11 @@ func pastaPrefix(s Sandbox) ([]string, []string, error) {
 	if deny == "" {
 		return argv, nil, nil
 	}
-	sh, err := lookPath("sh")
+	sh, err := trace.LookPath("sh")
 	if err != nil {
 		return nil, nil, fmt.Errorf("sandbox: %w", err)
 	}
-	nft, err := lookPath(nftBinary)
+	nft, err := trace.LookPath(NFTBinary)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sandbox: deny: %w", err)
 	}
@@ -372,4 +374,17 @@ func denyRules(cidrs []string) (string, []string, error) {
 		r += " ip6 daddr { " + strings.Join(v6, ", ") + " } reject;"
 	}
 	return r + " }; }", append(v4, v6...), nil
+}
+
+// NetworkApplied is the sandbox network mode ("host", "none" or
+// "pasta"), the normalized deny CIDRs loaded as rules, pasta's DNS
+// forward, the file bound over /etc/resolv.conf, and whether the agent
+// started under pasta.
+type NetworkApplied struct {
+	Mode         string   `json:"mode"`
+	Deny         []string `json:"deny,omitempty"`
+	DNSForward   string   `json:"dns_forward,omitempty"`
+	DNSHost      string   `json:"dns_host,omitempty"`
+	ResolvConf   string   `json:"resolv_conf,omitempty"`
+	PastaStarted bool     `json:"pasta_started,omitempty"`
 }

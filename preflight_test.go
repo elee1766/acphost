@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/elee1766/acphost/internal/hostenv"
 )
 
 type preflightFixture struct {
@@ -19,10 +21,10 @@ type preflightFixture struct {
 // caller, and the helper binaries on PATH.
 func newPreflightFixture(t *testing.T) preflightFixture {
 	t.Helper()
-	oldE, oldG := getegid, getgroups
-	t.Cleanup(func() { getegid, getgroups = oldE, oldG })
-	getegid = func() int { return 4242 }
-	getgroups = func() ([]int, error) { return []int{4242}, nil }
+	oldE, oldG := hostenv.Getegid, hostenv.Getgroups
+	t.Cleanup(func() { hostenv.Getegid, hostenv.Getgroups = oldE, oldG })
+	hostenv.Getegid = func() int { return 4242 }
+	hostenv.Getgroups = func() ([]int, error) { return []int{4242}, nil }
 
 	root := t.TempDir()
 	cg := filepath.Join(root, "cgroup")
@@ -60,8 +62,8 @@ func write(t *testing.T, path, s string) {
 	}
 }
 
-func (f preflightFixture) spec() Spec {
-	return Spec{
+func (f preflightFixture) spec() Isolated {
+	return Isolated{
 		Cgroup:  &Cgroup{Parent: f.parent, MemoryMax: "1G", PidsMax: 100},
 		User:    &User{UID: 1000, GID: 1000, MapUID: 101000, MapGID: 101000, MapCount: 1000},
 		Sandbox: &Sandbox{Network: "pasta"},
@@ -104,7 +106,7 @@ func TestPreflightAllOK(t *testing.T) {
 
 func TestPreflightNoIsolation(t *testing.T) {
 	f := newPreflightFixture(t)
-	r, err := preflight(Spec{Command: "agent"}, f.env)
+	r, err := preflight(Isolated{}, f.env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,7 @@ func TestPreflightNoIsolation(t *testing.T) {
 
 func TestPreflightNoPastaNoNetworkCheck(t *testing.T) {
 	f := newPreflightFixture(t)
-	r, _ := preflight(Spec{Sandbox: &Sandbox{Network: "none"}}, f.env)
+	r, _ := preflight(Isolated{Sandbox: &Sandbox{Network: "none"}}, f.env)
 	if _, ok := checkFor(r, "network"); ok || len(r.Checks) != 1 {
 		t.Fatalf("report = %+v", r)
 	}
@@ -126,36 +128,36 @@ func TestPreflightNoPastaNoNetworkCheck(t *testing.T) {
 func TestPreflightMissing(t *testing.T) {
 	cases := []struct {
 		name, check, reason, hint string
-		mutate                    func(f *preflightFixture, s *Spec)
+		mutate                    func(f *preflightFixture, s *Isolated)
 	}{
-		{"cgroup parent missing", "cgroup.parent", "no such file", "SetupDelegation", func(f *preflightFixture, s *Spec) {
+		{"cgroup parent missing", "cgroup.parent", "no such file", "SetupDelegation", func(f *preflightFixture, s *Isolated) {
 			s.Cgroup.Parent = filepath.Join(f.env.cgroupRoot, "nope")
 		}},
-		{"cgroup outside root", "cgroup.parent", "is not under", "cgroup v2 mount", func(_ *preflightFixture, s *Spec) {
+		{"cgroup outside root", "cgroup.parent", "is not under", "cgroup v2 mount", func(_ *preflightFixture, s *Isolated) {
 			s.Cgroup.Parent = "/tmp"
 		}},
-		{"cgroup relative", "cgroup.parent", "not absolute", "absolute path", func(_ *preflightFixture, s *Spec) {
+		{"cgroup relative", "cgroup.parent", "not absolute", "absolute path", func(_ *preflightFixture, s *Isolated) {
 			s.Cgroup.Parent = "sessions"
 		}},
-		{"cgroup not writable", "cgroup.writable", "not writable", "Delegate=yes", func(f *preflightFixture, _ *Spec) {
+		{"cgroup not writable", "cgroup.writable", "not writable", "Delegate=yes", func(f *preflightFixture, _ *Isolated) {
 			if err := os.Chmod(f.parent, 0o555); err != nil {
 				t.Fatal(err)
 			}
 		}},
-		{"cgroup controller not enabled", "cgroup.controllers", "controllers memory not enabled", `echo "+memory" > `, func(f *preflightFixture, _ *Spec) {
+		{"cgroup controller not enabled", "cgroup.controllers", "controllers memory not enabled", `echo "+memory" > `, func(f *preflightFixture, _ *Isolated) {
 			write(t, filepath.Join(f.parent, "cgroup.subtree_control"), "pids\n")
 		}},
-		{"cgroup controller not delegated", "cgroup.controllers", "memory not in", "Delegate=", func(f *preflightFixture, _ *Spec) {
+		{"cgroup controller not delegated", "cgroup.controllers", "memory not in", "Delegate=", func(f *preflightFixture, _ *Isolated) {
 			write(t, filepath.Join(f.parent, "cgroup.controllers"), "pids\n")
 			write(t, filepath.Join(f.parent, "cgroup.subtree_control"), "pids\n")
 		}},
-		{"newuidmap", "user.newuidmap", "newuidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Spec) {
+		{"newuidmap", "user.newuidmap", "newuidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.path, "newuidmap"))
 		}},
-		{"newgidmap", "user.newgidmap", "newgidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Spec) {
+		{"newgidmap", "user.newgidmap", "newgidmap not on PATH", "uidmap package", func(f *preflightFixture, _ *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.path, "newgidmap"))
 		}},
-		{"newuidmap not setuid", "user.newuidmap", "not setuid", "chmod u+s", func(f *preflightFixture, _ *Spec) {
+		{"newuidmap not setuid", "user.newuidmap", "not setuid", "chmod u+s", func(f *preflightFixture, _ *Isolated) {
 			f.env.privileged = func(p string) error {
 				if strings.HasSuffix(p, "newuidmap") {
 					return errors.New("not setuid root and has no file capabilities")
@@ -163,35 +165,35 @@ func TestPreflightMissing(t *testing.T) {
 				return nil
 			}
 		}},
-		{"subuid entry missing", "user.subuid", "entries: none", "usermod --add-subuids 101000-101999 4242", func(f *preflightFixture, _ *Spec) {
+		{"subuid entry missing", "user.subuid", "entries: none", "usermod --add-subuids 101000-101999 4242", func(f *preflightFixture, _ *Isolated) {
 			write(t, filepath.Join(f.env.etc, "subuid"), "someone:100000:65536\n")
 		}},
-		{"subuid file missing", "user.subuid", "subuid range", "--add-subuids 101000-101000", func(f *preflightFixture, s *Spec) {
+		{"subuid file missing", "user.subuid", "subuid range", "--add-subuids 101000-101000", func(f *preflightFixture, s *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.etc, "subuid"))
 			s.User.MapCount = 0
 		}},
-		{"subgid file missing", "user.subgid", "entries: none", "usermod --add-subgids 101000-101999 4242", func(f *preflightFixture, _ *Spec) {
+		{"subgid file missing", "user.subgid", "entries: none", "usermod --add-subgids 101000-101999 4242", func(f *preflightFixture, _ *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.etc, "subgid"))
 		}},
-		{"subuid range too small", "user.subuid", "not inside one", "--add-subuids 160000-169999", func(_ *preflightFixture, s *Spec) {
+		{"subuid range too small", "user.subuid", "not inside one", "--add-subuids 160000-169999", func(_ *preflightFixture, s *Isolated) {
 			s.User.MapUID, s.User.MapCount = 160000, 10000
 		}},
-		{"subgid range too small", "user.subgid", "not inside one", "--add-subgids 160000-169999", func(_ *preflightFixture, s *Spec) {
+		{"subgid range too small", "user.subgid", "not inside one", "--add-subgids 160000-169999", func(_ *preflightFixture, s *Isolated) {
 			s.User.MapUID, s.User.MapGID, s.User.MapCount = 100000, 160000, 10000
 		}},
-		{"subuid malformed", "user.subuid", "line 1", "owner:start:count", func(f *preflightFixture, _ *Spec) {
+		{"subuid malformed", "user.subuid", "line 1", "owner:start:count", func(f *preflightFixture, _ *Isolated) {
 			write(t, filepath.Join(f.env.etc, "subuid"), "garbage\n")
 		}},
-		{"group not owned", "user.map", "group 27", "spec.user", func(_ *preflightFixture, s *Spec) {
+		{"group not owned", "user.map", "group 27", "spec.user", func(_ *preflightFixture, s *Isolated) {
 			s.User.Groups = []int{27}
 		}},
-		{"bwrap", "sandbox.bwrap", "bwrap not found", "bubblewrap", func(f *preflightFixture, _ *Spec) {
+		{"bwrap", "sandbox.bwrap", "bwrap not found", "bubblewrap", func(f *preflightFixture, _ *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.path, "bwrap"))
 		}},
-		{"pasta", "network.pasta", "pasta not found", "passt", func(f *preflightFixture, _ *Spec) {
+		{"pasta", "network.pasta", "pasta not found", "passt", func(f *preflightFixture, _ *Isolated) {
 			_ = os.Remove(filepath.Join(f.env.path, "pasta"))
 		}},
-		{"nft", "network.nft", "nft not found", "nftables", func(_ *preflightFixture, s *Spec) {
+		{"nft", "network.nft", "nft not found", "nftables", func(_ *preflightFixture, s *Isolated) {
 			s.Sandbox.Deny = []string{"10.0.0.0/8"}
 		}},
 	}

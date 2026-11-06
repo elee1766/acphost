@@ -1,12 +1,13 @@
-package acphost
+package userns
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/elee1766/acphost/internal/hostenv"
+	"github.com/elee1766/acphost/internal/xerr"
 )
 
 func TestParseSubIDs(t *testing.T) {
@@ -29,10 +30,10 @@ func TestParseSubIDs(t *testing.T) {
 }
 
 func TestUserMaps(t *testing.T) {
-	oldE, oldG := getegid, getgroups
-	t.Cleanup(func() { getegid, getgroups = oldE, oldG })
-	getegid = func() int { return 1000 }
-	getgroups = func() ([]int, error) { return []int{1000, 27, 100}, nil }
+	oldE, oldG := hostenv.Getegid, hostenv.Getgroups
+	t.Cleanup(func() { hostenv.Getegid, hostenv.Getgroups = oldE, oldG })
+	hostenv.Getegid = func() int { return 1000 }
+	hostenv.Getgroups = func() ([]int, error) { return []int{1000, 27, 100}, nil }
 
 	subuid := []Range{{100000, 65536}}
 	subgid := []Range{{100000, 65536}}
@@ -63,9 +64,9 @@ func TestUserMaps(t *testing.T) {
 				su, sg = subuid, subgid
 			}
 			for range 3 { // deterministic across runs
-				u, g, err := userMaps(tt.u, 1000, "subuid", "subgid", su, sg)
+				u, g, err := Maps(tt.u, 1000, "subuid", "subgid", su, sg)
 				if tt.wantErr {
-					var pe *PermanentError
+					var pe *xerr.PermanentError
 					if !errors.As(err, &pe) {
 						t.Fatalf("want PermanentError, got %v", err)
 					}
@@ -102,33 +103,17 @@ func TestUserMapsSpan(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := User{MapUID: tt.mapUID, MapGID: tt.mapGID, MapCount: tt.count}
-			_, _, err := userMaps(u, 1000, "subuid", "subgid", sub, sub)
+			_, _, err := Maps(u, 1000, "subuid", "subgid", sub, sub)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
 				}
 				return
 			}
-			var pe *PermanentError
+			var pe *xerr.PermanentError
 			if !errors.As(err, &pe) || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), tt.inError) {
 				t.Fatalf("want PermanentError with %q and %q, got %v", tt.wantErr, tt.inError, err)
 			}
 		})
-	}
-}
-
-func TestCheckSpawnUserBadSubuid(t *testing.T) {
-	dir := t.TempDir()
-	oldU, oldG := subuidPath, subgidPath
-	t.Cleanup(func() { subuidPath, subgidPath = oldU, oldG })
-	subuidPath = filepath.Join(dir, "subuid")
-	subgidPath = filepath.Join(dir, "subgid")
-	if err := os.WriteFile(subuidPath, []byte("bad\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s := Spec{Command: "true", Dir: dir, User: &User{MapUID: os.Geteuid(), MapGID: os.Getegid()}}
-	var pe *PermanentError
-	if err := CheckSpawn(s, false); !errors.As(err, &pe) {
-		t.Fatalf("want PermanentError for bad subuid, got %v", err)
 	}
 }

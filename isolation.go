@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/elee1766/acphost/cgroup"
+	"github.com/elee1766/acphost/sandbox"
 )
 
 // Isolation is isolation.json: what the host actually applied when it
@@ -34,10 +37,7 @@ type CgroupApplied struct {
 }
 
 // LimitApplied is one cgroup limit file and the value written to it.
-type LimitApplied struct {
-	File  string `json:"file"`
-	Value string `json:"value"`
-}
+type LimitApplied = cgroup.LimitApplied
 
 // UserApplied holds the uid_map and gid_map lines ("inside outside
 // count") passed to newuidmap and newgidmap.
@@ -50,14 +50,7 @@ type UserApplied struct {
 // "pasta"), the normalized deny CIDRs loaded as rules, pasta's DNS
 // forward, the file bound over /etc/resolv.conf, and whether the agent
 // started under pasta.
-type NetworkApplied struct {
-	Mode         string   `json:"mode"`
-	Deny         []string `json:"deny,omitempty"`
-	DNSForward   string   `json:"dns_forward,omitempty"`
-	DNSHost      string   `json:"dns_host,omitempty"`
-	ResolvConf   string   `json:"resolv_conf,omitempty"`
-	PastaStarted bool     `json:"pasta_started,omitempty"`
-}
+type NetworkApplied = sandbox.NetworkApplied
 
 // mapLines turns newuidmap/newgidmap arguments (triples) into map lines.
 func mapLines(args []string) []string {
