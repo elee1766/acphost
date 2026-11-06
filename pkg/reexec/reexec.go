@@ -2,7 +2,8 @@
 // (#157). A program opts in by calling proc.MaybeChild first in main;
 // importing a package has no side effects. A helper is picked by argv[0]
 // (argv[1] for the DNS check, which pasta execs by path) and reads its
-// input as JSON from an inherited fd, never from the environment. Bad or
+// input as JSON from an inherited fd, never from the environment (except
+// UsernsInit, which runs inside bwrap past pasta; see UsernsInitEnv). Bad or
 // missing input exits 127.
 package reexec
 
@@ -21,6 +22,10 @@ const (
 	Pdeath   = "acphost-pdeath"
 	DNSCheck = "acphost-dnscheck"
 	Pin      = "acphost-pin"
+	// UsernsInit is the path, not just the name: bwrap execs it there
+	// inside the sandbox, so argv[0] is the path (see UsernsInitEnv).
+	// /dev is bwrap's own tmpfs, so the bind never lands on the host.
+	UsernsInit = "/dev/.acphost-init"
 )
 
 // Config fds. Both are fixed so the userns helper can exec the pdeath
@@ -64,6 +69,8 @@ func MaybeChild() {
 		pdeathChild()
 	case Pin:
 		pinChild()
+	case UsernsInit:
+		usernsInit()
 	}
 	if len(os.Args) == 4 && os.Args[1] == DNSCheck {
 		dnsCheckChild(os.Args[2], os.Args[3])

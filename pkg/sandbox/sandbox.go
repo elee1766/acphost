@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -52,6 +53,11 @@ type Sandbox struct {
 	ResolvConf string `json:"resolv_conf,omitempty"`
 	// ExtraArgs are passed to bwrap after everything else, before "--".
 	ExtraArgs []string `json:"extra_args,omitempty"`
+	// OpenParents makes bwrap create the parents of mount points 0755
+	// instead of 0700 owned by the sandbox root, so an agent that drops
+	// from root to another uid can reach its mounts (#162). Set by the
+	// host, not part of the spec.
+	OpenParents bool `json:"-"`
 }
 
 // DNS is pasta's DNS forwarding. Queries the agent sends to Forward (an
@@ -208,6 +214,26 @@ func pathDepth(p string) int {
 	return strings.Count(p, "/")
 }
 
+// openParents returns --dir options, mode 0755, for the parents of dst
+// not yet in done, shallowest first, and records them in done. bwrap
+// would make them 0700. A parent inside a bind mount is a host dir and
+// is skipped (and a mount point already exists), so only dirs in the
+// sandbox's own tmpfs are made.
+func openParents(dst string, binds []string, done map[string]bool) []string {
+	var ps []string
+	for p := filepath.Dir(dst); !done[p]; p = filepath.Dir(p) {
+		done[p] = true
+		if !slices.ContainsFunc(binds, func(m string) bool { return within(p, m) }) {
+			ps = append(ps, p)
+		}
+	}
+	var out []string
+	for i := len(ps) - 1; i >= 0; i-- {
+		out = append(out, "--perms", "0755", "--dir", ps[i])
+	}
+	return out
+}
+
 func within(p, root string) bool {
 	if root == "/" {
 		return strings.HasPrefix(p, "/")
@@ -336,7 +362,25 @@ func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *Net
 		// agent keeps CAP_NET_ADMIN there and could delete the deny rules.
 		argv = append(argv, "--cap-drop", "ALL")
 	}
+	// With OpenParents, each mount is preceded by --dir for its missing
+	// parents. Binds are parents first, so a parent is never made
+	// before a mount it sits in. Binds and overlays show host content,
+	// so a dir inside one is never made.
+	var bindDsts []string
 	for _, b := range binds {
+		if b.flag != "--tmpfs" {
+			bindDsts = append(bindDsts, b.dst)
+		}
+	}
+	// bwrap's own mounts exist already; --perms would chmod them.
+	done := map[string]bool{"/": true, "/proc": true, "/dev": true, "/tmp": true}
+	parents := func(dst string) {
+		if s.OpenParents {
+			argv = append(argv, openParents(dst, bindDsts, done)...)
+		}
+	}
+	for _, b := range binds {
+		parents(b.dst)
 		switch {
 		case b.overlay != nil:
 			argv = append(argv, b.overlay...)
@@ -347,11 +391,14 @@ func BuildArgs(s Sandbox, cmd string, args []string, dir string) ([]string, *Net
 		}
 	}
 	for _, h := range s.Hide {
+		parents(filepath.Clean(h))
 		argv = append(argv, "--tmpfs", filepath.Clean(h))
 	}
 	// After all binds, so a bind of /etc does not cover it.
 	if s.ResolvConf != "" {
-		argv = append(argv, "--ro-bind", s.ResolvConf, resolvConfDst(etcResolvConf))
+		dst := resolvConfDst(etcResolvConf)
+		parents(dst)
+		argv = append(argv, "--ro-bind", s.ResolvConf, dst)
 	}
 	// The agent sees only the env it was given, so host secrets do not
 	// leak in by default.

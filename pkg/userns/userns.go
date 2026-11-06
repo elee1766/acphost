@@ -176,6 +176,34 @@ func Maps(u User, self int, subuidFile, subgidFile string, subuid, subgid []Rang
 	return uidArgs, gidArgs, nil
 }
 
+// RootMaps adds the caller (uid self, gid egid) as root inside to the
+// Maps output (#162). A sandbox started as that root does its mounts
+// with the caller's own access, then switches to u's ids. It reports
+// false, leaving the args alone, when u is root inside or already maps
+// to the caller's uid outside: the agent is then the caller anyway. The
+// gid line is added unless egid is already mapped or inside gid 0 is
+// taken, in which case it reports false when egid would stay unmapped.
+func RootMaps(u User, self, egid int, uidArgs, gidArgs []string) (ru, rg []string, ok bool) {
+	if u.UID == 0 || u.MapUID == self {
+		return uidArgs, gidArgs, false
+	}
+	ru = append([]string{"0", strconv.Itoa(self), "1"}, uidArgs...)
+	e := strconv.Itoa(egid)
+	rootFree := true
+	for i := 0; i+2 < len(gidArgs); i += 3 {
+		if gidArgs[i+1] == e {
+			return ru, gidArgs, true
+		}
+		if gidArgs[i] == "0" {
+			rootFree = false
+		}
+	}
+	if !rootFree {
+		return uidArgs, gidArgs, false
+	}
+	return ru, append([]string{"0", e, "1"}, gidArgs...), true
+}
+
 // Check validates u for the current process and checks newuidmap and
 // newgidmap are on PATH.
 func Check(u User) error {

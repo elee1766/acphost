@@ -10,6 +10,34 @@ import (
 	"testing"
 )
 
+// OpenParents makes the tmpfs parents of each mount 0755, before the
+// mount, and leaves dirs inside a bind (host dirs) alone (#162).
+func TestSandboxOpenParents(t *testing.T) {
+	tmp := t.TempDir()
+	s := Sandbox{
+		Bwrap: "/bin/bwrap", OpenParents: true,
+		RO:   []Mount{{Src: tmp, Dst: "/a/b"}, {Src: tmp, Dst: "/a/b/c/d"}},
+		RW:   []Mount{{Src: tmp, Dst: "/w/x"}},
+		Hide: []string{"/a/e/f"},
+	}
+	got, err := Args(s, "agent", nil, "/w/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/bin/bwrap", "--die-with-parent", "--unshare-pid", "--new-session",
+		"--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+		"--perms", "0755", "--dir", "/a", "--ro-bind", tmp, "/a/b",
+		"--perms", "0755", "--dir", "/w", "--bind", tmp, "/w/x",
+		"--ro-bind", tmp, "/a/b/c/d",
+		"--perms", "0755", "--dir", "/a/e", "--tmpfs", "/a/e/f",
+		"--clearenv", "--chdir", "/w/x", "--", "agent",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestSandboxArgs(t *testing.T) {
 	tmp := t.TempDir()
 	work := filepath.Join(tmp, "work")

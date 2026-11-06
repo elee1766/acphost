@@ -1,8 +1,11 @@
 package reexec
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -21,6 +24,63 @@ type UsernsConfig struct {
 	// up os.Args[1] on PATH. Set when the command is another helper
 	// (argv[0] is its name, the file is /proc/self/exe).
 	Path string `json:"path,omitempty"`
+	// Root keeps the helper root in the namespace (the caller is
+	// mapped to root) instead of switching to UID/GID, so bwrap mounts
+	// with the caller's access and UsernsInit switches ids inside the
+	// sandbox (#162). UID, GID and Groups are unused.
+	Root bool `json:"root,omitempty"`
+}
+
+// UsernsInitEnv carries the UsernsInit helper's ids, as "uid:gid:g1,g2".
+// bwrap execs the helper inside the sandbox and passes no fds but 0-2
+// through pasta, so this one helper reads the environment. It runs
+// nothing but os.Args[1:] as those ids, with no caps.
+const UsernsInitEnv = "_ACPHOST_USERNS_INIT"
+
+// usernsInit runs inside the sandbox in root mode, as the command bwrap
+// starts with only CAP_SETUID and CAP_SETGID. It becomes the agent's
+// ids and execs os.Args[1:].
+func usernsInit() {
+	fail := failer("userns")
+	var u UsernsConfig
+	if !parseInitEnv(os.Getenv(UsernsInitEnv), &u) {
+		fail("bad %s", UsernsInitEnv)
+	}
+	_ = os.Unsetenv(UsernsInitEnv)
+	u.Parent = os.Getppid()
+	becomeUser(u)
+}
+
+// InitEnv encodes ids for UsernsInitEnv.
+func InitEnv(uid, gid int, groups []int) string {
+	gs := make([]string, len(groups))
+	for i, g := range groups {
+		gs[i] = strconv.Itoa(g)
+	}
+	return fmt.Sprintf("%d:%d:%s", uid, gid, strings.Join(gs, ","))
+}
+
+func parseInitEnv(s string, u *UsernsConfig) bool {
+	f := strings.Split(s, ":")
+	if len(f) != 3 {
+		return false
+	}
+	var err1, err2 error
+	u.UID, err1 = strconv.Atoi(f[0])
+	u.GID, err2 = strconv.Atoi(f[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	if f[2] != "" {
+		for _, g := range strings.Split(f[2], ",") {
+			n, err := strconv.Atoi(g)
+			if err != nil {
+				return false
+			}
+			u.Groups = append(u.Groups, n)
+		}
+	}
+	return true
 }
 
 // usernsChild runs in the re-exec'd host binary, already in the new user
@@ -39,6 +99,18 @@ func usernsChild() {
 	if u.Parent <= 0 || os.Getppid() != u.Parent {
 		os.Exit(127)
 	}
+	if u.Root {
+		// Already ns root with full caps for the execve: no id change,
+		// so the parent-death signal still holds.
+		execArgs(u.Path)
+	}
+	becomeUser(u)
+}
+
+// becomeUser switches to u's ids, drops every capability and execs
+// os.Args[1:].
+func becomeUser(u UsernsConfig) {
+	fail := failer("userns")
 	groups := u.Groups
 	if groups == nil {
 		groups = []int{}
@@ -49,10 +121,10 @@ func usernsChild() {
 		fail("setgroups %v: %v", u.Groups, err)
 	}
 	if err := syscall.Setresgid(u.GID, u.GID, u.GID); err != nil {
-		fail("setresgid %d: %v", u.GID, err)
+		fail("setresgid %d: %v (%s)", u.GID, err, credState())
 	}
 	if err := syscall.Setresuid(u.UID, u.UID, u.UID); err != nil {
-		fail("setresuid %d: %v", u.UID, err)
+		fail("setresuid %d: %v (%s)", u.UID, err, credState())
 	}
 	// Drop the ambient caps so the agent's execve leaves it with none.
 	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
@@ -63,12 +135,18 @@ func usernsChild() {
 		fail("pdeathsig: %v", err)
 	}
 	if os.Getppid() != u.Parent {
-		os.Exit(127) // host died before the signal was set
+		os.Exit(127) // parent died before the signal was set
 	}
+	execArgs(u.Path)
+}
+
+// execArgs execs os.Args[1:], from path or looked up on PATH.
+func execArgs(path string) {
+	fail := failer("userns")
 	if len(os.Args) < 2 {
 		fail("no command")
 	}
-	path := u.Path
+	var err error
 	if path == "" {
 		if path, err = exec.LookPath(os.Args[1]); err != nil {
 			fail("%v", err)
@@ -76,4 +154,23 @@ func usernsChild() {
 	}
 	err = syscall.Exec(path, os.Args[1:], os.Environ())
 	fail("exec %s: %v", path, err)
+}
+
+// credState describes the ids, caps and maps of this process, for an id
+// switch that failed: a missing map line and a missing cap look alike.
+func credState() string {
+	var parts []string
+	if b, err := os.ReadFile("/proc/self/status"); err == nil {
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(l, "Uid:") || strings.HasPrefix(l, "Gid:") || strings.HasPrefix(l, "CapEff:") {
+				parts = append(parts, strings.Join(strings.Fields(l), " "))
+			}
+		}
+	}
+	for _, f := range []string{"uid_map", "gid_map", "setgroups"} {
+		if b, err := os.ReadFile("/proc/self/" + f); err == nil {
+			parts = append(parts, f+": "+strings.Join(strings.Fields(string(b)), " "))
+		}
+	}
+	return strings.Join(parts, "; ")
 }

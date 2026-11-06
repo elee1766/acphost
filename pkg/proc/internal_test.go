@@ -38,7 +38,7 @@ func TestUsernsCommandApplied(t *testing.T) {
 	u := userns.User{UID: 0, GID: 0, MapUID: os.Geteuid(), MapGID: os.Getegid()}
 	cmd := exec.Command("true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	_, applied, err := usernsCommand(cmd, u)
+	_, applied, err := usernsCommand(cmd, u, false)
 	require.NoError(t, err)
 	assert.Equal(t, &UserApplied{
 		UIDMap: []string{"0 " + strconv.Itoa(os.Geteuid()) + " 1"},

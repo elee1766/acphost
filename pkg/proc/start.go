@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -138,6 +139,18 @@ func (p *Process) start(s Spec, o options) error {
 	// reexec.PdeathWrap). Closed once started.
 	var pdeathCfg *os.File
 	_, joinPid := s.Join["pid"]
+	// rootMode: with a sandbox and a mapped User, the userns helper stays
+	// root so bwrap mounts with the caller's access, and an init helper
+	// inside the sandbox switches to the user's ids (#162). Not with a
+	// joined user namespace, whose maps are not ours.
+	rootMode := false
+	if _, joinUser := s.Join["user"]; s.Sandbox != nil && s.User != nil && !joinUser {
+		_, _, ok, err := usernsMaps(*s.User, true)
+		if err != nil {
+			return err
+		}
+		rootMode = ok
+	}
 	if s.Sandbox != nil {
 		sb := sandboxWithEnv(*s.Sandbox, s.Env)
 		// The status lines tell a bwrap setup failure from a command
@@ -145,9 +158,26 @@ func (p *Process) start(s Spec, o options) error {
 		// sandbox, so it is a dup of stderr made just for bwrap
 		// (statusWrap).
 		sb.ExtraArgs = append([]string{"--json-status-fd", "3"}, sb.ExtraArgs...)
-		argv, net, err := sandbox.BuildArgs(sb, s.Command, s.Args, s.Dir)
+		command, args := s.Command, s.Args
+		if rootMode {
+			ra, err := rootModeArgs(*s.User)
+			if err != nil {
+				return err
+			}
+			sb.ExtraArgs = append(sb.ExtraArgs, ra...)
+			sb.OpenParents = true
+			command, args = reexec.UsernsInit, append([]string{s.Command}, args...)
+		}
+		argv, net, err := sandbox.BuildArgs(sb, command, args, s.Dir)
 		if err != nil {
 			return err
+		}
+		if rootMode && net != nil && net.Mode == "pasta" {
+			// pasta would otherwise nest a user namespace that maps
+			// only root, leaving no user ids to switch to. Its network
+			// namespace is then owned by ours, where the command has no
+			// caps, so it still cannot touch the deny rules.
+			argv = slices.Insert(argv, 1, "--netns-only")
 		}
 		if argv, err = statusWrap(argv); err != nil {
 			return err
@@ -237,7 +267,7 @@ func (p *Process) start(s Spec, o options) error {
 	start := cmd.Start
 	if s.User != nil {
 		var err error
-		if start, iso.User, err = usernsCommand(cmd, *s.User); err != nil {
+		if start, iso.User, err = usernsCommand(cmd, *s.User, rootMode); err != nil {
 			return err
 		}
 	}
