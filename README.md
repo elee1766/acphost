@@ -479,6 +479,14 @@ handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
 
 ## Release notes
 
+v0.10.0 (2026-11-06): jobshop on v0.9.0 with the Preflight nft and DNS
+checks. No API change since v0.9.0. `Protocol` stays 1. Details in
+`docs/notes/151-release-v0.10.0.md`.
+
+- `Preflight` nft check (#138), `WithDNSCheck` (#139).
+- Journal follow via inotify (#141).
+- jobshop on v0.9.0 (elee1766/jobshop#752).
+
 v0.9.0 (2026-11-06): in-process test host, Preflight fix hints and DNS
 and nft checks, journal tail and follow speedups. `Protocol` stays 1.
 Details in `docs/notes/126-release-v0.9.0.md`.
