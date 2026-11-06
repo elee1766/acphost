@@ -108,15 +108,21 @@ func Main(dir string, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	// The proc supervisor's lock and pid file, so proc.Open, Running,
 	// Wait and Stop work on a session dir. host.lock and host.pid stay
 	// for clients and hosts from before #210, which only know those.
 	sup, err := proc.Supervise(dir)
 	if err != nil {
+		unlock()
 		return err
 	}
-	defer func() { _ = sup.Close() }()
+	// host.lock goes first: proc's Wait returns when supervisor.lock is
+	// released, and a caller then checks Alive, which reads host.lock
+	// (#216). Two separate defers would release them in the other order.
+	defer func() {
+		unlock()
+		_ = sup.Close()
+	}()
 	if _, err := os.Stat(filepath.Join(dir, CompressedJournalFile)); err == nil {
 		if _, err := os.Stat(filepath.Join(dir, JournalFile)); errors.Is(err, os.ErrNotExist) {
 			return ErrJournalCompressed
