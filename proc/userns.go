@@ -1,4 +1,4 @@
-package acphost
+package proc
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 
 	"github.com/elee1766/acphost/internal/hostenv"
 	"github.com/elee1766/acphost/internal/reexec"
+	"github.com/elee1766/acphost/internal/trace"
+	"github.com/elee1766/acphost/internal/xerr"
 	"github.com/elee1766/acphost/userns"
 	"golang.org/x/sys/unix"
 )
@@ -22,18 +24,18 @@ import (
 // helper's config to its fd, which releases it to exec the real command,
 // so the pid the host waits on is the agent. It also returns the map
 // lines it will write.
-func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserApplied, err error) {
+func usernsCommand(cmd *exec.Cmd, u userns.User) (start func() error, applied *UserApplied, err error) {
 	if err := reexec.Check(); err != nil {
 		return nil, nil, err
 	}
 	self := os.Geteuid()
 	subuid, err := userns.ReadSubIDs(hostenv.SubUIDPath, self)
 	if err != nil {
-		return nil, nil, Permanentf("user: %s: %w", hostenv.SubUIDPath, err)
+		return nil, nil, xerr.Permanentf("user: %s: %w", hostenv.SubUIDPath, err)
 	}
 	subgid, err := userns.ReadSubIDs(hostenv.SubGIDPath, self)
 	if err != nil {
-		return nil, nil, Permanentf("user: %s: %w", hostenv.SubGIDPath, err)
+		return nil, nil, xerr.Permanentf("user: %s: %w", hostenv.SubGIDPath, err)
 	}
 	uidArgs, gidArgs, err := userns.Maps(u, self, hostenv.SubUIDPath, hostenv.SubGIDPath, subuid, subgid)
 	if err != nil {
@@ -77,13 +79,13 @@ func usernsCommand(cmd *exec.Cmd, u User) (start func() error, applied *UserAppl
 			args []string
 		}{{"newuidmap", uidArgs}, {"newgidmap", gidArgs}} {
 			var stderr bytes.Buffer
-			traceEvent("run:" + m.tool)
+			trace.Event("run:" + m.tool)
 			c := exec.Command(m.tool, append([]string{pid}, m.args...)...)
 			c.Stderr = &stderr
 			if err := c.Run(); err != nil {
 				_ = w.Close() // child reads EOF and exits
 				_ = cmd.Wait()
-				return Permanentf("user: %s: %v: %s", m.tool, err, strings.TrimSpace(stderr.String()))
+				return xerr.Permanentf("user: %s: %v: %s", m.tool, err, strings.TrimSpace(stderr.String()))
 			}
 		}
 		if _, err := w.Write(body); err != nil {

@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/elee1766/acphost/cgroup"
 	"github.com/elee1766/acphost/internal/trace"
@@ -84,20 +83,6 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 		return &PermanentError{Err: fmt.Errorf("agent command %q: %w", s.Command, err)}
 	}
 	return nil
-}
-
-// sandboxWithEnv returns s with the spec's Env (KEY=VALUE) set inside the
-// sandbox. bwrap clears the environment, and Env is what the caller asked
-// the agent to have.
-func sandboxWithEnv(s Sandbox, env []string) Sandbox {
-	extra := make([]string, 0, 3*len(env)+len(s.ExtraArgs))
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			extra = append(extra, "--setenv", k, v)
-		}
-	}
-	s.ExtraArgs = append(extra, s.ExtraArgs...)
-	return s
 }
 
 func lookCommand(cmd string, env []string) error { return trace.LookCommand(cmd, env) }

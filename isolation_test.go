@@ -4,11 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"syscall"
 	"testing"
 
-	"github.com/elee1766/acphost/internal/hostenv"
 	"github.com/elee1766/acphost/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,29 +40,6 @@ func TestIsolationEmptyRecord(t *testing.T) {
 	for _, e := range ents {
 		assert.NotContains(t, e.Name(), ".tmp", "no temp file left")
 	}
-}
-
-func TestMapLines(t *testing.T) {
-	assert.Equal(t, []string{"0 1000 1", "27 27 1"}, mapLines([]string{"0", "1000", "1", "27", "27", "1"}))
-	assert.Nil(t, mapLines(nil))
-}
-
-func TestUsernsCommandApplied(t *testing.T) {
-	dir := t.TempDir()
-	oldU, oldG := hostenv.SubUIDPath, hostenv.SubGIDPath
-	t.Cleanup(func() { hostenv.SubUIDPath, hostenv.SubGIDPath = oldU, oldG })
-	hostenv.SubUIDPath, hostenv.SubGIDPath = filepath.Join(dir, "subuid"), filepath.Join(dir, "subgid")
-	require.NoError(t, os.WriteFile(hostenv.SubUIDPath, nil, 0o600))
-	require.NoError(t, os.WriteFile(hostenv.SubGIDPath, nil, 0o600))
-	u := User{UID: 0, GID: 0, MapUID: os.Geteuid(), MapGID: os.Getegid()}
-	cmd := exec.Command("true")
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	_, applied, err := usernsCommand(cmd, u)
-	require.NoError(t, err)
-	assert.Equal(t, &UserApplied{
-		UIDMap: []string{"0 " + strconv.Itoa(os.Geteuid()) + " 1"},
-		GIDMap: []string{"0 " + strconv.Itoa(os.Getegid()) + " 1"},
-	}, applied)
 }
 
 func TestSandboxArgsNetworkApplied(t *testing.T) {
