@@ -58,6 +58,9 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 			return err
 		}
 	}
+	if err := checkJoin(s); err != nil {
+		return err
+	}
 	if s.Sandbox != nil {
 		// SandboxArgs looks up bwrap on PATH and checks mounts and Dir.
 		if s.Sandbox.Bwrap != "" {

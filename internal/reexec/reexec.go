@@ -20,6 +20,7 @@ const (
 	Userns   = "acphost-userns"
 	Pdeath   = "acphost-pdeath"
 	DNSCheck = "acphost-dnscheck"
+	Pin      = "acphost-pin"
 )
 
 // Config fds. Both are fixed so the userns helper can exec the pdeath
@@ -61,6 +62,8 @@ func MaybeChild() {
 		usernsChild()
 	case Pdeath:
 		pdeathChild()
+	case Pin:
+		pinChild()
 	}
 	if len(os.Args) == 4 && os.Args[1] == DNSCheck {
 		dnsCheckChild(os.Args[2], os.Args[3])

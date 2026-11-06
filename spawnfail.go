@@ -72,7 +72,7 @@ func (t *stderrTap) observe(line []byte) {
 	if len(line) > 500 {
 		line = line[:500]
 	}
-	if bytes.HasPrefix(line, []byte("acphost userns: ")) || bytes.HasPrefix(line, []byte("acphost pdeath: ")) {
+	if bytes.HasPrefix(line, []byte("acphost userns: ")) || bytes.HasPrefix(line, []byte("acphost pdeath: ")) || bytes.HasPrefix(line, []byte("nsenter: ")) {
 		t.helperFail = string(line)
 	}
 	t.last = string(line)

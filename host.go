@@ -318,6 +318,7 @@ func (h *Host) startAgent() (io.Reader, error) {
 	// pdeathCfg is the pdeath helper's config pipe, read end (see
 	// reexec.PdeathWrap). Closed once started.
 	var pdeathCfg *os.File
+	_, joinPid := h.spec.Join["pid"]
 	if h.spec.Sandbox != nil {
 		sb := sandboxWithEnv(*h.spec.Sandbox, h.spec.Env)
 		// The status lines tell a bwrap setup failure from an agent exit
@@ -331,28 +332,51 @@ func (h *Host) startAgent() (io.Reader, error) {
 		if argv, err = statusWrap(argv); err != nil {
 			return nil, err
 		}
+		if joinPid {
+			argv = dropUnsharePid(argv)
+		}
 		iso.Bwrap, iso.Network = argv, net
 		// bwrap does the chdir (Dir is a path inside the sandbox).
 		cmd = exec.Command(argv[0], argv[1:]...)
-		if net != nil && net.Mode == "pasta" {
-			path, wrapped, r, w, err := reexec.PdeathWrap(argv)
-			if err != nil {
-				return nil, err
-			}
-			_ = w.Close() // the config is already in the pipe
-			pdeathCfg = r
-			defer func() { _ = pdeathCfg.Close() }()
-			cmd.Path, cmd.Args, cmd.Err = path, wrapped, nil
-			cmd.ExtraFiles = reexec.SetExtraFile(cmd.ExtraFiles, reexec.PdeathFd, r)
-			// The helper file, then pasta and bwrap (Bwrap).
-			iso.PdeathHelper = []string{path}
-		}
 	} else {
 		cmd.Dir = h.spec.Dir
 	}
+	if len(h.spec.Join) > 0 {
+		// nsenter joins, then execs the agent or the sandbox. Joining
+		// mnt resets the cwd, so it changes to Dir after the join
+		// (bwrap does its own chdir).
+		wdns := ""
+		if _, ok := h.spec.Join["mnt"]; ok && h.spec.Sandbox == nil {
+			wdns, cmd.Dir = h.spec.Dir, ""
+		}
+		prefix, applied, err := joinPrefix(h.spec.Join, wdns)
+		if err != nil {
+			return nil, err
+		}
+		iso.Join = applied
+		dir := cmd.Dir
+		cmd = exec.Command(prefix[0], append(prefix[1:], cmd.Args...)...)
+		cmd.Dir = dir
+	}
+	// With pasta, and with join.pid (nsenter forks and waits), the
+	// process the host starts is not the agent and a parent-death
+	// signal on it would not reach the rest.
+	if iso.Network != nil && iso.Network.Mode == "pasta" || joinPid {
+		path, wrapped, r, w, err := reexec.PdeathWrap(cmd.Args)
+		if err != nil {
+			return nil, err
+		}
+		_ = w.Close() // the config is already in the pipe
+		pdeathCfg = r
+		defer func() { _ = pdeathCfg.Close() }()
+		cmd.Path, cmd.Args, cmd.Err = path, wrapped, nil
+		cmd.ExtraFiles = reexec.SetExtraFile(cmd.ExtraFiles, reexec.PdeathFd, r)
+		// The helper file, then nsenter, pasta and bwrap.
+		iso.PdeathHelper = []string{path}
+	}
 	cmd.Env = append(os.Environ(), h.spec.Env...)
 	cmd.Stderr = os.Stderr // host.log
-	if h.spec.Sandbox != nil || h.spec.User != nil {
+	if h.spec.Sandbox != nil || h.spec.User != nil || len(h.spec.Join) > 0 {
 		tap, w, err := newStderrTap(os.Stderr)
 		if err != nil {
 			return nil, err

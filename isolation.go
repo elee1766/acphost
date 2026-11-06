@@ -21,6 +21,9 @@ type Isolation struct {
 	Cgroup  *CgroupApplied  `json:"cgroup,omitempty"`
 	User    *UserApplied    `json:"user,omitempty"`
 	Network *NetworkApplied `json:"network,omitempty"`
+	// Join maps each namespace type the agent joined (Spec.Join) to its
+	// path and the namespace it resolved to when the host started.
+	Join map[string]JoinApplied `json:"join,omitempty"`
 	// Bwrap is the full argv the host ran when sandboxed, including any
 	// pasta prefix.
 	Bwrap []string `json:"bwrap,omitempty"`

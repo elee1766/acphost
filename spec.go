@@ -89,6 +89,13 @@ type Spec struct {
 	// Cgroup, if set, gives the agent its own cgroup v2 with limits. Nil
 	// touches no cgroupfs.
 	Cgroup *Cgroup `json:"cgroup,omitempty"`
+	// Join maps a namespace type (user, mnt, pid, net, ipc, uts, cgroup;
+	// see JoinTypes) to a namespace file the agent joins instead of
+	// getting a new one: a /proc/<pid>/ns/<type> link or a bind-mounted
+	// ns file (see Pin). Joining runs util-linux nsenter in front of the
+	// agent (or bwrap), user first and mnt last. With pid the agent is a
+	// child of nsenter, since a pid join only applies to children.
+	Join map[string]string `json:"join,omitempty"`
 }
 
 // MethodName returns the extension method for prefix and a suffix such as
