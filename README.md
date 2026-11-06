@@ -1,7 +1,7 @@
 # acphost
 
 [![ci](https://github.com/elee1766/acphost/actions/workflows/ci.yml/badge.svg)](https://github.com/elee1766/acphost/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/elee1766/acphost.svg)](https://pkg.go.dev/github.com/elee1766/acphost)
+[![Go Reference](https://pkg.go.dev/badge/github.com/elee1766/acphost.svg)](https://pkg.go.dev/github.com/elee1766/acphost/pkg/acphost)
 [![Go Report Card](https://goreportcard.com/badge/github.com/elee1766/acphost)](https://goreportcard.com/report/github.com/elee1766/acphost)
 [![Release](https://img.shields.io/github/v/release/elee1766/acphost?sort=semver)](https://github.com/elee1766/acphost/releases)
 
@@ -37,14 +37,18 @@ to run agent sessions that survive controller restarts.
 go get github.com/elee1766/acphost
 ```
 
-Upgrading from v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
+Packages are under `pkg/`: the host is `pkg/acphost`, isolation is
+`pkg/proc`, `pkg/sandbox`, `pkg/cgroup` and `pkg/userns`. Upgrading from
+the root-package layout (v0.11 and earlier):
+`docs/notes/164-pkg-layout.md`. Upgrading from v0.3:
+`docs/notes/68-upgrade-v0.3-v0.6.md`.
 
 ## Quick start
 
 This needs none of the isolation features described below. It starts a
 host, connects, and later reconnects asking for replay from a seq. The
 same code, with error handling and output checks, is `Example` in
-`example_test.go`, which `go test` runs and pkg.go.dev shows.
+`pkg/acphost/example_test.go`, which `go test` runs and pkg.go.dev shows.
 
 ```go
 package main
@@ -57,8 +61,8 @@ import (
 	"net"
 	"path/filepath"
 
-	"github.com/elee1766/acphost"
-	"github.com/elee1766/acphost/proc"
+	"github.com/elee1766/acphost/pkg/acphost"
+	"github.com/elee1766/acphost/pkg/proc"
 )
 
 func main() {
