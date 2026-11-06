@@ -34,3 +34,9 @@ Tests: the host survives the CLI process (a built binary starts it and
 exits, then `status` sees it, `Connect` succeeds, `wait` returns the
 agent's exit code), `stop`, a second start on a running dir, and a spawn
 failure.
+
+Fix found by CI on this PR: the host reported "agent started" to
+`StartDetached` (#210) before it installed its SIGTERM handler, so a
+`stop` right after `start` could kill the host by the default action and
+leave no `exit.json`. The report now comes after the handler and the
+accept loop are set up.
