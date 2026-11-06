@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.1](https://github.com/elee1766/acphost/compare/v0.11.0...v0.11.1) (2026-11-06)
+
+
+### Features
+
+* **sandbox:** overlay mounts merging layer dirs onto one target ([#163](https://github.com/elee1766/acphost/issues/163)) ([#168](https://github.com/elee1766/acphost/issues/168)) ([223329a](https://github.com/elee1766/acphost/commit/223329a34327c00b959ffe3868a9275b7e25d84a))
+
+## [0.11.0](https://github.com/elee1766/acphost/compare/v0.10.0...v0.11.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **proc:** callers (jobshop main, TestMains using user or pasta) must call proc.MaybeChild().
+
+### Features
+
+* **proc:** add maybechild re-exec helpers with fd config, no init() ([#157](https://github.com/elee1766/acphost/issues/157)) ([#167](https://github.com/elee1766/acphost/issues/167)) ([eadf29e](https://github.com/elee1766/acphost/commit/eadf29e95b9441733d2baac7c2392bbd1bdacf49))
+
 ## [0.10.0](https://github.com/elee1766/acphost/compare/v0.9.0...v0.10.0) (2026-11-06)
 
 
