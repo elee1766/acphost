@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/elee1766/acphost/compare/v0.17.0...v0.18.0) (2026-11-06)
+
+
+### Features
+
+* **cli:** start --host runs an ACP host detached ([#211](https://github.com/elee1766/acphost/issues/211)) ([#214](https://github.com/elee1766/acphost/issues/214)) ([80f9f04](https://github.com/elee1766/acphost/commit/80f9f04334d887bf1fc100813e5192b711103283))
+
 ## [0.17.0](https://github.com/elee1766/acphost/compare/v0.16.1...v0.17.0) (2026-11-06)
 
 
