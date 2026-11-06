@@ -121,10 +121,10 @@ func becomeUser(u UsernsConfig) {
 		fail("setgroups %v: %v", u.Groups, err)
 	}
 	if err := syscall.Setresgid(u.GID, u.GID, u.GID); err != nil {
-		fail("setresgid %d: %v", u.GID, err)
+		fail("setresgid %d: %v (%s)", u.GID, err, credState())
 	}
 	if err := syscall.Setresuid(u.UID, u.UID, u.UID); err != nil {
-		fail("setresuid %d: %v", u.UID, err)
+		fail("setresuid %d: %v (%s)", u.UID, err, credState())
 	}
 	// Drop the ambient caps so the agent's execve leaves it with none.
 	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
@@ -154,4 +154,23 @@ func execArgs(path string) {
 	}
 	err = syscall.Exec(path, os.Args[1:], os.Environ())
 	fail("exec %s: %v", path, err)
+}
+
+// credState describes the ids, caps and maps of this process, for an id
+// switch that failed: a missing map line and a missing cap look alike.
+func credState() string {
+	var parts []string
+	if b, err := os.ReadFile("/proc/self/status"); err == nil {
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(l, "Uid:") || strings.HasPrefix(l, "Gid:") || strings.HasPrefix(l, "CapEff:") {
+				parts = append(parts, strings.Join(strings.Fields(l), " "))
+			}
+		}
+	}
+	for _, f := range []string{"uid_map", "gid_map", "setgroups"} {
+		if b, err := os.ReadFile("/proc/self/" + f); err == nil {
+			parts = append(parts, f+": "+strings.Join(strings.Fields(string(b)), " "))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
