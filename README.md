@@ -295,7 +295,7 @@ spec.Cgroup = &cgroup.Cgroup{
 }
 ```
 
-JSON keys: `parent`, `cpu_max`, `memory_max`, `memory_high`, `swap_max`,
+JSON keys: `driver`, `parent`, `cpu_max`, `memory_max`, `memory_high`, `swap_max`,
 `pids_max`. Unset limits are not written.
 
 - The agent starts in the cgroup. On stop the host writes `cgroup.kill`
@@ -341,6 +341,44 @@ One-time setup (root): the host user needs a delegated subtree.
   ```
 
   and use `/sys/fs/cgroup/acphost` as `Parent`.
+
+### Choosing a driver
+
+`Cgroup.Driver` picks who makes the session cgroup: `cgroupfs` (the
+default) creates it with mkdir under `Parent`, `systemd` asks the
+systemd manager for a transient scope in the slice `Parent`.
+
+| the host runs | sessions outlive the unit | driver | `Parent` |
+|---|---|---|---|
+| as a systemd unit (service, user service) | yes (detached hosts) | `systemd` | a slice, e.g. `acphost.slice` |
+| as a systemd unit | no, they stop with it | either | slice or delegated dir |
+| in a systemd scope you do not restart (`systemd-run --scope`) | either | `cgroupfs` | `SetupDelegation` result |
+| without systemd (container, other init) | either | `cgroupfs` | delegated dir, e.g. `/sys/fs/cgroup/acphost` |
+
+- Use `systemd` when the host runs under a systemd unit that must be
+  able to restart while sessions live on. With `cgroupfs` and
+  `Delegate=`, the unit's own cgroup has to enable cpu, memory and pids
+  for the session cgroups below it. Those sessions keep it from being
+  turned off, so systemd cannot start the next process of the unit
+  (EBUSY, `Result=resources`). With `systemd` the scopes belong to the
+  manager and the unit enables nothing.
+- Use `cgroupfs` when there is no systemd manager to talk to, or when
+  the host is given a delegated subtree it owns (a boot-time
+  `/sys/fs/cgroup/acphost`, or `Delegate=yes` on a unit that is not
+  restarted while sessions run). It needs no D-Bus socket.
+- `systemd` needs the manager's private socket
+  (`cgroup.ManagerSocket`): the system manager as root, else the
+  user's manager at `$XDG_RUNTIME_DIR/systemd/private`. A non-root host
+  must run inside its user manager's cgroup tree: a user service or
+  `systemd-run --user`, with `loginctl enable-linger` so the manager
+  runs without a login. A system service with `User=` is outside that
+  tree.
+- `Preflight` checks the chosen driver: the slice name and that the
+  manager answers for `systemd`, `Parent` and its controllers for
+  `cgroupfs`. Run it before switching.
+
+Why the systemd driver exists and how it starts a session:
+[docs/notes/226-systemd-cgroup-driver.md](docs/notes/226-systemd-cgroup-driver.md).
 
 ### SetupDelegation
 
