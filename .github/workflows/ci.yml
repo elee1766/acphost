@@ -35,6 +35,14 @@ jobs:
           go test -json -race -v -run 'TestSandbox|TestUserns' ./... > test-sandbox.json || rc=$?
           jq -j 'select(.Action == "output") | .Output' test-sandbox.json
           exit "${rc:-0}"
+      # Pasta tests have flaked on master after passing once on their PR
+      # (#131-#133). Five more runs make a flake fail the PR that adds it.
+      - name: pasta tests x5
+        if: success() || failure()
+        run: |
+          go test -json -race -count=5 -run 'TestSandboxPasta' ./... > test-pasta.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-pasta.json
+          exit "${rc:-0}"
       # Cgroup integration tests need a delegated cgroup with memory and
       # pids. P is owned by the runner and holds no processes, so it can
       # enable controllers. The shell moves into the leaf P/test, so P is
