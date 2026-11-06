@@ -222,9 +222,6 @@ func (h *Host) run() error {
 		return &SpawnError{Exit: ex, Err: err}
 	}
 	h.log.Info("agent started", "pid", h.agent.Pid(), "command", h.spec.Command)
-	if h.opts.started != nil {
-		h.opts.started(h.agent.Pid())
-	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -241,6 +238,11 @@ func (h *Host) run() error {
 	}()
 	go h.acceptLoop(ln)
 	go h.leaseLoop()
+	// After the signal handler: StartDetached returns on this, and a Stop
+	// right after it must reach the handler, not kill the host by default.
+	if h.opts.started != nil {
+		h.opts.started(h.agent.Pid())
+	}
 	h.cgroup = h.agent.CgroupDir()
 	if h.conv != nil || h.cgroup != "" {
 		go h.statsLoop()

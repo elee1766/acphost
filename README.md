@@ -488,6 +488,7 @@ jobshop:
 acphost run  -c sandbox.yaml [--dir DIR] -- CMD ARGS...
 acphost host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
 acphost start -c sandbox.yaml --dir STATEDIR [--grace 10s] -- CMD ARGS...
+acphost start --host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
 acphost status|wait --dir STATEDIR
 acphost stop --dir STATEDIR [--grace 30s]
 ```
@@ -502,6 +503,12 @@ acphost stop --dir STATEDIR [--grace 30s]
   supervisor pid. `status` prints running/exited/lost as JSON, `stop`
   stops it and prints the exit, `wait` exits with its status like `run`.
   See `docs/notes/200-cli-detached.md`.
+- `start --host` does the same for an ACP host: it writes `spec.json`
+  into SESSIONDIR as `host` does, runs the host detached with
+  `acphost.StartDetached`, prints the host pid and the socket path (to
+  stderr), and returns once the agent started. Clients `Connect` to the
+  socket afterwards; `status`, `stop` and `wait` take the same `--dir`.
+  See `docs/notes/211-cli-host-detached.md`.
 - Flags: `--network host|none|pasta`, `--ro SRC[:DST]`, `--rw SRC[:DST]`,
   `--join TYPE=PATH`, `--print` (bwrap/pasta argv, uid maps, join plan;
   runs nothing), `--check` (CheckSpawn and Preflight), `-v` (isolation
