@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.0](https://github.com/elee1766/acphost/compare/v0.19.1...v0.20.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **acphost:** acphost.LockFile and acphost.PidFile are removed and a host no longer writes host.lock or host.pid.
+
+### Features
+
+* **acphost:** drop host.lock and host.pid, supervisor.lock is the one lock ([#222](https://github.com/elee1766/acphost/issues/222)) ([#231](https://github.com/elee1766/acphost/issues/231)) ([12488d5](https://github.com/elee1766/acphost/commit/12488d5db5fde47843c0ec88d612edad8c42104d))
+
 ## [0.19.1](https://github.com/elee1766/acphost/compare/v0.19.0...v0.19.1) (2026-11-06)
 
 
