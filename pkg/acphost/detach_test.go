@@ -19,8 +19,9 @@ import (
 )
 
 // A host started detached survives its caller, and once the agent exits
-// the dir has exit.json with the exit code, read through proc.Open, and
-// host.pid, host.lock and supervisor.pid for both kinds of reader (#210).
+// the dir has exit.json with the exit code, read through proc.Open.
+// supervisor.pid and supervisor.lock are its only pid and lock files
+// (#222).
 func TestDetachedHostSurvivesCaller(t *testing.T) {
 	dir := t.TempDir()
 	// The agent exits 3 after one line on stdin.
@@ -43,9 +44,6 @@ func TestDetachedHostSurvivesCaller(t *testing.T) {
 	assert.Equal(t, hostPid, d.Pid)
 	require.True(t, d.Running())
 	require.True(t, Alive(dir))
-	b, err := os.ReadFile(filepath.Join(dir, PidFile))
-	require.NoError(t, err)
-	assert.Equal(t, strconv.Itoa(hostPid), string(b), "host.pid for older clients")
 	nc, _, w, err := Connect(t.Context(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, hostPid, w.Pid)
