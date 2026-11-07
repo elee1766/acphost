@@ -376,6 +376,13 @@ systemd manager for a transient scope in the slice `Parent`.
 - `Preflight` checks the chosen driver: the slice name and that the
   manager answers for `systemd`, `Parent` and its controllers for
   `cgroupfs`. Run it before switching.
+- The driver places the agent. A detached host has its own cgroup,
+  picked by a `StartDetached` option: the caller's cgroup by default,
+  `InCgroup(dir)` for an existing cgroupfs dir, `InScope(slice)` for a
+  transient scope `acphost-host-*.scope`. Under a restartable unit use
+  `InScope`: a dir passed to `InCgroup` sits inside the unit, the tree
+  the systemd driver moves agents out of. With `cgroupfs` and an owned
+  delegated subtree, `InCgroup` is enough.
 
 Why the systemd driver exists and how it starts a session:
 [docs/notes/226-systemd-cgroup-driver.md](docs/notes/226-systemd-cgroup-driver.md).
@@ -538,6 +545,15 @@ directory instead of the caller's, so the host (and an agent without
 `Spec.Cgroup`) counts there. jobshop uses it to keep session hosts out
 of the controller's share. Details in
 `docs/notes/223-detached-host-cgroup.md`.
+
+`acphost.InScope(slice)` starts the host in a new transient systemd
+scope, `acphost-host-<session>-<pid>.scope` in `slice`, instead. The
+manager owns that cgroup, so it is not inside the caller's unit, which
+matters when the caller runs under a unit that restarts (see "Choosing a
+driver"). systemd removes the scope once the host and what it forked
+have exited. It needs the same manager as the systemd cgroup driver.
+`InScope` and `InCgroup` together are an error. Details in
+`docs/notes/240-host-scope.md`.
 
 The host is its own supervisor, so `proc.Open(dir)` works on a session
 dir: `Running`, `Stop` (the host stops the agent) and `Wait`, which

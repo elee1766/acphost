@@ -35,6 +35,31 @@ func TestScopeUnit(t *testing.T) {
 	assert.Equal(t, `acphost-\x2ex\x20y-1.scope`, u)
 	_, err = ScopeUnit(strings.Repeat("a", 250), 1)
 	assert.True(t, isPermanent(err), "%v", err)
+
+	u, err = HostScopeUnit("js-s-0033k", 42)
+	require.NoError(t, err)
+	assert.Equal(t, `acphost-host-js\x2ds\x2d0033k-42.scope`, u)
+}
+
+// A host scope has no limits and is not delegated: the host runs in it
+// directly (#240).
+func TestHostScopeProps(t *testing.T) {
+	got := map[string]any{}
+	for _, p := range hostScopeProps("acphost-hosts.slice", "s1", 99) {
+		got[p.Name] = p.Value.Value()
+	}
+	assert.Equal(t, []uint32{99}, got["PIDs"])
+	assert.Equal(t, "acphost-hosts.slice", got["Slice"])
+	assert.Equal(t, "continue", got["OOMPolicy"])
+	assert.Equal(t, "inactive-or-failed", got["CollectMode"])
+	for _, k := range []string{"Delegate", "MemoryMax", "TasksMax", "CPUQuotaPerSecUSec"} {
+		assert.NotContains(t, got, k)
+	}
+	for _, p := range hostScopeProps("", "s1", 99) {
+		assert.NotEqual(t, "Slice", p.Name)
+	}
+	_, err := StartHostScope(context.Background(), "/sys/fs/cgroup/x", "s1", 1)
+	assert.True(t, isPermanent(err), "%v", err)
 }
 
 func TestScopeProps(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/elee1766/acphost/pkg/cgroup"
 	"github.com/elee1766/acphost/pkg/proc"
 	"github.com/elee1766/acphost/pkg/reexec"
 )
@@ -43,7 +44,10 @@ func MaybeChild(opts ...Option) {
 // DetachOption configures StartDetached.
 type DetachOption func(*detachOptions)
 
-type detachOptions struct{ cgroupDir string }
+type detachOptions struct {
+	cgroupDir string
+	scope     *string
+}
 
 // InCgroup starts the host in the existing cgroup v2 directory dir, so
 // the host and an agent without Spec.Cgroup count there and not in the
@@ -52,6 +56,18 @@ type detachOptions struct{ cgroupDir string }
 // that cannot be opened fails StartDetached before anything starts.
 func InCgroup(dir string) DetachOption {
 	return func(o *detachOptions) { o.cgroupDir = dir }
+}
+
+// InScope starts the host in a new transient systemd scope,
+// acphost-host-<session>-<pid>.scope, in slice (empty: the manager's
+// default), as the systemd cgroup driver does for an agent (#240). The
+// manager owns that cgroup, so the host and an agent without
+// Spec.Cgroup are outside the caller's unit and a restart of the unit
+// does not touch them. systemd collects the scope once the host and
+// what it forked are gone. Needs the systemd manager the driver needs
+// (cgroup.ManagerSocket). Not with InCgroup.
+func InScope(slice string) DetachOption {
+	return func(o *detachOptions) { o.scope = &slice }
 }
 
 // StartDetached starts a host for the session in dir, whose spec is
@@ -74,11 +90,18 @@ func StartDetached(dir string, env []string, opts ...DetachOption) (*proc.Detach
 	for _, f := range opts {
 		f(&o)
 	}
+	if o.cgroupDir != "" && o.scope != nil {
+		return nil, Permanentf("acphost: InCgroup and InScope are exclusive")
+	}
+	if o.scope != nil && *o.scope != "" && !cgroup.ValidSlice(*o.scope) {
+		return nil, Permanentf("acphost: InScope slice %q is not a slice name (want <name>.slice)", *o.scope)
+	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := ReadSpec(dir); err != nil {
+	spec, err := ReadSpec(dir)
+	if err != nil {
 		return nil, err
 	}
 	if Alive(dir) {
@@ -92,7 +115,11 @@ func StartDetached(dir string, env []string, opts ...DetachOption) (*proc.Detach
 		return nil, err
 	}
 	defer func() { _ = logf.Close() }()
-	pid, err := proc.Detach(proc.DetachSpec{Argv0: hostArgv0, Config: hostConfig{Dir: dir}, Dir: dir, Env: env, Log: logf, CgroupDir: o.cgroupDir})
+	ds := proc.DetachSpec{Argv0: hostArgv0, Config: hostConfig{Dir: dir}, Dir: dir, Env: env, Log: logf, CgroupDir: o.cgroupDir}
+	if o.scope != nil {
+		ds.Scope = &proc.DetachScope{Slice: *o.scope, Name: spec.Session}
+	}
+	pid, err := proc.Detach(ds)
 	if err != nil {
 		// exit.json was removed above, so one here is this host's.
 		if ex, ok := ReadExit(dir); ok && ex.Reason == ReasonSpawnFailed {

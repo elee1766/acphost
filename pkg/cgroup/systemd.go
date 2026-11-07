@@ -77,8 +77,18 @@ func unitNameChar(r rune) bool {
 // systemd-escape does. The pid keeps a restarted session from meeting
 // its previous scope while systemd still collects it.
 func ScopeUnit(session string, pid int) (string, error) {
+	return unitName("acphost-", session, pid)
+}
+
+// HostScopeUnit is the unit name StartHostScope uses:
+// acphost-host-<session>-<pid>.scope, escaped as ScopeUnit does.
+func HostScopeUnit(session string, pid int) (string, error) {
+	return unitName("acphost-host-", session, pid)
+}
+
+func unitName(prefix, session string, pid int) (string, error) {
 	var b strings.Builder
-	b.WriteString("acphost-")
+	b.WriteString(prefix)
 	if session != "" {
 		for i := range len(session) {
 			c := session[i]
@@ -99,6 +109,28 @@ func ScopeUnit(session string, pid int) (string, error) {
 		return "", xerr.Permanentf("cgroup: scope unit name for session %q is %d bytes, over the limit of %d", session, b.Len(), maxUnitName)
 	}
 	return b.String(), nil
+}
+
+// hostScopeProps are the unit properties StartHostScope sets: no
+// limits and no delegation, accounting so the host's usage shows in
+// systemctl status, and the same OOM and collect behavior as a session
+// scope.
+func hostScopeProps(slice, session string, pid int) []unitProp {
+	p := []unitProp{
+		{"Description", dbus.MakeVariant("acphost host " + session)},
+		{"PIDs", dbus.MakeVariant([]uint32{uint32(pid)})},
+		{"MemoryAccounting", dbus.MakeVariant(true)},
+		{"CPUAccounting", dbus.MakeVariant(true)},
+		{"TasksAccounting", dbus.MakeVariant(true)},
+		// An OOM kill of an agent that shares the scope must not stop
+		// the host with it.
+		{"OOMPolicy", dbus.MakeVariant("continue")},
+		{"CollectMode", dbus.MakeVariant("inactive-or-failed")},
+	}
+	if slice != "" {
+		p = append(p, unitProp{"Slice", dbus.MakeVariant(slice)})
+	}
+	return p
 }
 
 // scopeProps are the unit properties StartScope sets: c's limits, the
@@ -237,9 +269,46 @@ func StartScope(ctx context.Context, c Cgroup, session string, pid int) (Scope, 
 	if err != nil {
 		return Scope{}, nil, err
 	}
-	conn, err := dialManager()
+	s, err := startUnit(ctx, unit, props)
 	if err != nil {
 		return Scope{}, nil, err
+	}
+	// Report what the kernel has, not what was asked: systemd rounds the
+	// CPU quota, and a missing controller leaves no file.
+	var applied []LimitApplied
+	for _, x := range c.limits() {
+		b, err := os.ReadFile(filepath.Join(s.Dir, x.file))
+		if err != nil {
+			return s, applied, xerr.Permanentf("cgroup: systemd scope %s: %s not applied (is the %s controller delegated to the manager?): %w", unit, x.file, x.controller, err)
+		}
+		applied = append(applied, LimitApplied{File: x.file, Value: strings.TrimSpace(string(b))})
+	}
+	return s, applied, nil
+}
+
+// StartHostScope asks the systemd manager for a transient scope in
+// slice (empty: the manager's default) that adopts pid, for a detached
+// host (#240): unit HostScopeUnit, no limits, not delegated. pid and
+// the caller have the same requirements as with StartScope. The scope
+// goes away once it is empty.
+func StartHostScope(ctx context.Context, slice, session string, pid int) (Scope, error) {
+	trace.Event("systemd:start-host-scope")
+	if slice != "" && !ValidSlice(slice) {
+		return Scope{}, xerr.Permanentf("cgroup: host scope slice %q is not a slice name (want <name>.slice)", slice)
+	}
+	unit, err := HostScopeUnit(session, pid)
+	if err != nil {
+		return Scope{}, err
+	}
+	return startUnit(ctx, unit, hostScopeProps(slice, session, pid))
+}
+
+// startUnit starts the transient scope unit with props, waits for the
+// start job and returns the scope with its cgroup dir.
+func startUnit(ctx context.Context, unit string, props []unitProp) (Scope, error) {
+	conn, err := dialManager()
+	if err != nil {
+		return Scope{}, err
 	}
 	defer func() { _ = conn.Close() }()
 	// systemd sends the job's JobRemoved to the connection that queued
@@ -255,34 +324,23 @@ func StartScope(ctx context.Context, c Cgroup, session string, pid int) (Scope, 
 		Props []unitProp
 	}{}
 	if err := mgr.CallWithContext(ctx, systemdManager+".StartTransientUnit", 0, unit, "fail", props, aux).Store(&job); err != nil {
-		return Scope{}, nil, scopeError(unit, err)
+		return Scope{}, scopeError(unit, err)
 	}
 	if err := waitJob(ctx, sigs, job, unit); err != nil {
-		return Scope{}, nil, err
+		return Scope{}, err
 	}
 	var path dbus.ObjectPath
 	if err := mgr.CallWithContext(ctx, systemdManager+".GetUnit", 0, unit).Store(&path); err != nil {
-		return Scope{}, nil, fmt.Errorf("cgroup: systemd scope %s: %w", unit, err)
+		return Scope{}, fmt.Errorf("cgroup: systemd scope %s: %w", unit, err)
 	}
 	var cg string
 	if err := conn.Object(systemdDest, path).StoreProperty("org.freedesktop.systemd1.Scope.ControlGroup", &cg); err != nil {
-		return Scope{}, nil, fmt.Errorf("cgroup: systemd scope %s: control group: %w", unit, err)
+		return Scope{}, fmt.Errorf("cgroup: systemd scope %s: control group: %w", unit, err)
 	}
 	if cg == "" {
-		return Scope{}, nil, fmt.Errorf("cgroup: systemd scope %s: no control group", unit)
+		return Scope{}, fmt.Errorf("cgroup: systemd scope %s: no control group", unit)
 	}
-	s := Scope{Unit: unit, Dir: filepath.Join("/sys/fs/cgroup", cg)}
-	// Report what the kernel has, not what was asked: systemd rounds the
-	// CPU quota, and a missing controller leaves no file.
-	var applied []LimitApplied
-	for _, x := range c.limits() {
-		b, err := os.ReadFile(filepath.Join(s.Dir, x.file))
-		if err != nil {
-			return s, applied, xerr.Permanentf("cgroup: systemd scope %s: %s not applied (is the %s controller delegated to the manager?): %w", unit, x.file, x.controller, err)
-		}
-		applied = append(applied, LimitApplied{File: x.file, Value: strings.TrimSpace(string(b))})
-	}
-	return s, applied, nil
+	return Scope{Unit: unit, Dir: filepath.Join("/sys/fs/cgroup", cg)}, nil
 }
 
 // waitJob waits for the JobRemoved signal of job.
