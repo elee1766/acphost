@@ -771,6 +771,16 @@ handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
 
 ## Release notes
 
+v0.22.1 (2026-11-07): docs only. Upgrade guide v0.6 to v0.22,
+`pkg/cgroup` examples, `InScope` and `InCgroup` examples, godoc pass.
+No API change. `Protocol` stays 1. Details in
+`docs/notes/255-release-v0.22.1.md`.
+
+- [docs/upgrade-v0.6-v0.22.md](docs/upgrade-v0.6-v0.22.md) (#247).
+- `pkg/cgroup` examples (#248), `ExampleInScope`, `ExampleInCgroup`
+  (#249).
+- godoc pass on `pkg/...` (#251).
+
 v0.10.0 (2026-11-06): jobshop on v0.9.0 with the Preflight nft and DNS
 checks. No API change since v0.9.0. `Protocol` stays 1. Details in
 `docs/notes/151-release-v0.10.0.md`.
