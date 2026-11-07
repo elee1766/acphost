@@ -51,26 +51,24 @@ Packages are under `pkg/`:
 
 The CLI: `go install github.com/elee1766/acphost/cmd/acphost@latest`.
 
-### Upgrading to v0.15
+### Upgrading
 
-From v0.11 or earlier (root package `github.com/elee1766/acphost`):
+From v0.6 to v0.22: [docs/upgrade-v0.6-v0.22.md](docs/upgrade-v0.6-v0.22.md),
+with old and new code for each breaking change. In short:
 
-1. Change import paths: the root package is
-   `github.com/elee1766/acphost/pkg/acphost`, and `proc`, `sandbox`,
-   `cgroup`, `userns` and `acphosttest` are under `pkg/`
-   (`docs/notes/164-pkg-layout.md`, v0.13).
-2. Use the isolation packages instead of the root names, removed in
-   #160 (v0.15): `acphost.Sandbox` is `sandbox.Sandbox`, `acphost.Cgroup`
-   is `cgroup.Cgroup`, `acphost.User` is `userns.User`,
-   `acphost.DelegatedCgroup` is `cgroup.Delegated`. Full table:
-   `docs/notes/160-remove-aliases.md`.
-3. Call `proc.MaybeChild()` first in `main` (and in `TestMain`) when
-   any spec uses `user`, pasta networking, `join` or detached processes
-   (`docs/notes/157-maybechild.md`).
+1. Call `acphost.MaybeChild()` first in `main` and in `TestMain`
+   (v0.11).
+2. Change import paths: the root package is
+   `github.com/elee1766/acphost/pkg/acphost`, and the others are under
+   `pkg/` (v0.12).
+3. Use `sandbox`, `cgroup` and `userns` instead of the root isolation
+   names: `acphost.Sandbox` is `sandbox.Sandbox`, `acphost.Cgroup` is
+   `cgroup.Cgroup`, `acphost.User` is `userns.User` (v0.14).
+4. Use `proc.Open(dir)`, `proc.LockFile` and `proc.SupervisorPidFile`
+   instead of `acphost.LockFile` and `acphost.PidFile`, and stop hosts
+   started by a build before v0.17 before deploying (v0.20).
 
-The JSON spec and `Protocol` did not change, so a v0.15 client talks to
-hosts started by older versions. Upgrading from v0.3:
-`docs/notes/68-upgrade-v0.3-v0.6.md`.
+`Protocol` is 1 throughout. From v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
 
 ## Quick start
 
