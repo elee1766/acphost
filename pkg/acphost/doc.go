@@ -15,4 +15,8 @@
 // socket returned by [Connect].
 // After a restart it reconnects with [Hello].Since set to the last seq it
 // saw. See the package example.
+//
+// The isolation a [Spec] can ask for is described by the sandbox, cgroup
+// and userns packages, and pkg/proc runs the same isolation for any
+// command without ACP. [Preflight] checks the host for it before a spawn.
 package acphost

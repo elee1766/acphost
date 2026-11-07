@@ -45,7 +45,8 @@ type pendingCall struct {
 	method string
 }
 
-// Host runs one session.
+// Host is the state of one session's host process. Use Main or
+// StartDetached to run one; it has no exported fields or methods.
 type Host struct {
 	dir  string
 	spec Spec
@@ -87,7 +88,11 @@ type Host struct {
 }
 
 // Main runs the host for the session directory dir until the agent exits.
-// It is the body of the caller's host subcommand (`jobshop session-host`).
+// It reads the spec WriteSpec stored, takes the dir's supervisor lock
+// (a second host on dir fails) and listens on acp.sock. StartDetached
+// runs it in a detached child of this binary, through MaybeChild; call
+// Main directly to run a host in the foreground, as the acphost CLI's
+// host command does.
 func Main(dir string, opts ...Option) error {
 	o := options{statsEvery: 10 * time.Second, killGrace: 5 * time.Second}
 	for _, opt := range opts {
@@ -356,7 +361,7 @@ func (h *Host) writeExit(e Exit) {
 // statsLoop reports conversation export drop and truncation counts to the
 // connected controller, which owns the metrics. Counts taken while no
 // controller is connected are kept for the next report. With a cgroup it
-// also sends the current CgroupStats, which are not kept between ticks.
+// also sends the current cgroup.Stats, which are not kept between ticks.
 func (h *Host) statsLoop() {
 	t := time.NewTicker(h.opts.statsEvery)
 	defer t.Stop()

@@ -1,5 +1,7 @@
 // Package reexec runs the helpers acphost re-execs its own binary as
-// (#157). A program opts in by calling proc.MaybeChild first in main;
+// (#157). It serves acphost itself and is not a stable API: programs call
+// proc.MaybeChild (or acphost.MaybeChild), which calls [MaybeChild] here.
+// A program opts in by calling it first in main;
 // importing a package has no side effects. A helper is picked by argv[0]
 // (argv[1] for the DNS check, which pasta execs by path) and reads its
 // input as JSON from an inherited fd, never from the environment (except

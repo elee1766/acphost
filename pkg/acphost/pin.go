@@ -25,7 +25,7 @@ type Pinned struct {
 // one user namespace. As non-root it always adds a user namespace that
 // maps uid and gid 0 to the caller, since the others need one to be
 // created and joined. The holder is a re-exec of this binary (call
-// proc.MaybeChild first in main) and dies with the caller.
+// MaybeChild first in main, or proc.MaybeChild) and dies with the caller.
 //
 // A holder process is used instead of a bind mount of the ns file
 // because an unprivileged caller cannot bind-mount on the host.

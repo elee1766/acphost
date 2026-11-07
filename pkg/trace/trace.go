@@ -1,5 +1,7 @@
 // Package trace records helper lookups and cgroupfs or subordinate id
-// accesses for tests. Used by acphost itself; not a stable API.
+// accesses for tests: a test sets [Hook], and the code under test calls
+// [Event], [LookPath] and [LookCommand]. Used by acphost itself; not a
+// stable API.
 package trace
 
 import (

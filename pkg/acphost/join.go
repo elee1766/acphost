@@ -23,7 +23,8 @@ var nsFlags = map[string]int{
 	"mnt":    unix.CLONE_NEWNS,
 }
 
-// JoinApplied is proc.JoinApplied.
+// JoinApplied is one namespace Spec.Join joined, as isolation.json records
+// it: the path and the namespace it resolved to (proc.JoinApplied).
 type JoinApplied = proc.JoinApplied
 
 // checkJoin checks Spec.Join: known types, no type both joined and

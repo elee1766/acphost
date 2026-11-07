@@ -12,8 +12,11 @@ import (
 	"github.com/elee1766/acphost/pkg/userns"
 )
 
-// Protocol is the host protocol version. A controller refuses hosts it does
-// not understand rather than guessing.
+// Protocol is the version of the wire format between client and host:
+// spec.json, the hello and welcome lines, the "_"-prefixed extension
+// methods and the journal lines. A client refuses a host, and ReadSpec a
+// spec, with another value rather than guessing. A change that breaks an
+// older client or host bumps it. A Go API change alone does not.
 const Protocol = 1
 
 // Files in a session directory.
@@ -47,8 +50,8 @@ const (
 	// MethodExportStats (host to controller, notification): conversation
 	// export records dropped and fields truncated since the last report.
 	MethodExportStats = "_jobshop/export_stats"
-	// MethodCgroupStats (host to controller, notification): CgroupStats of
-	// the session cgroup, sent periodically (Spec.Cgroup only).
+	// MethodCgroupStats (host to controller, notification): cgroup.Stats
+	// of the session cgroup, sent periodically (Spec.Cgroup only).
 	MethodCgroupStats = "_jobshop/cgroup_stats"
 )
 
@@ -86,8 +89,9 @@ type Spec struct {
 	// User, if set, runs the agent as another uid/gid in a user
 	// namespace. Nil leaves ids unchanged.
 	User *userns.User `json:"user,omitempty"`
-	// Cgroup, if set, gives the agent its own cgroup v2 with limits. Nil
-	// touches no cgroupfs.
+	// Cgroup, if set, gives the agent its own cgroup v2 with limits, made
+	// by cgroupfs under Parent or, with Driver systemd, as a transient
+	// scope the systemd manager owns. Nil touches no cgroupfs.
 	Cgroup *cgroup.Cgroup `json:"cgroup,omitempty"`
 	// Join maps a namespace type (user, mnt, pid, net, ipc, uts, cgroup;
 	// see JoinTypes) to a namespace file the agent joins instead of

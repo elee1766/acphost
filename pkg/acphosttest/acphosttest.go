@@ -1,5 +1,7 @@
 // Package acphosttest runs an acphost host in the test process, so a test
 // that needs a live host does not pay for spawning a host binary.
+// [Start] writes a spec and runs the host; [StartDir] runs one for a dir
+// whose spec is already written. Both stop the host in t.Cleanup.
 //
 // A test using a user namespace or network pasta needs a TestMain that
 // calls proc.MaybeChild first: the host re-execs the test binary as a
