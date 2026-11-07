@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/elee1766/acphost/compare/v0.22.0...v0.22.1) (2026-11-07)
+
+
+### Bug fixes
+
+* **release:** notes and release-as 0.22.1 ([#255](https://github.com/elee1766/acphost/issues/255)) ([#256](https://github.com/elee1766/acphost/issues/256)) ([68bbc7f](https://github.com/elee1766/acphost/commit/68bbc7f2acdb2e965a26d0a40705dfb8e70635a8))
+
 ## [0.22.0](https://github.com/elee1766/acphost/compare/v0.21.0...v0.22.0) (2026-11-07)
 
 
