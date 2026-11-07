@@ -1,5 +1,6 @@
 // Package xerr holds the permanent spawn error shared by acphost and its
-// isolation packages. Callers use acphost.PermanentError, an alias.
+// isolation packages. [Permanentf] makes one. Callers use
+// acphost.PermanentError, an alias, and acphost.Permanent to test for it.
 package xerr
 
 import "fmt"

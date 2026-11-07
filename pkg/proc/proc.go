@@ -1,9 +1,17 @@
-// Package proc starts commands with acphost's isolation (sandbox,
-// cgroup, user namespace, parent-death kill). See #155.
+// Package proc runs a command with acphost's isolation (sandbox, cgroup,
+// user namespace, namespace joins, parent-death kill) and no ACP, socket
+// or journal.
+//
+// [Start] runs it attached to the caller: it dies with the caller or its
+// context, and [Process].Wait cleans up its cgroup. [StartDetached] runs
+// it under a supervisor that outlives the caller, and [Open] finds it
+// again by its state dir. The ACP host in pkg/acphost is built on the
+// same supervisor ([Supervise], [Detach]).
 //
 // Some isolation re-execs the calling binary as a small helper, so a
-// program that uses acphost must call MaybeChild as the first line of
-// main (and of TestMain in tests).
+// program that uses acphost must call [MaybeChild] as the first line of
+// main (and of TestMain in tests), or acphost.MaybeChild when it starts
+// ACP hosts.
 package proc
 
 import (

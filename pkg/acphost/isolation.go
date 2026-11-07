@@ -16,16 +16,20 @@ import (
 // while a missing file means a host too old to write one.
 type Isolation = proc.Isolation
 
-// CgroupApplied is proc.CgroupApplied.
+// CgroupApplied is the "cgroup" part of Isolation: the session cgroup (or
+// systemd scope) and its limit files (proc.CgroupApplied).
 type CgroupApplied = proc.CgroupApplied
 
-// LimitApplied is proc.LimitApplied.
+// LimitApplied is one cgroup limit file and the value in it
+// (proc.LimitApplied).
 type LimitApplied = proc.LimitApplied
 
-// UserApplied is proc.UserApplied.
+// UserApplied is the "user" part of Isolation: the uid_map and gid_map
+// lines passed to newuidmap and newgidmap (proc.UserApplied).
 type UserApplied = proc.UserApplied
 
-// NetworkApplied is proc.NetworkApplied.
+// NetworkApplied is the "network" part of Isolation: the sandbox network
+// mode, deny rules and pasta DNS settings (proc.NetworkApplied).
 type NetworkApplied = proc.NetworkApplied
 
 // ReadIsolation loads isolation.json. It reports false, with no error,

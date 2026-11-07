@@ -170,9 +170,11 @@ func validBytes(s string) bool {
 	return err == nil
 }
 
-// Prepare creates <parent>/<session> and writes the set limits. It
-// returns the new cgroup directory and the limits written, in order. The session name must be a single
-// path element so nothing is written outside Parent.
+// Prepare creates <parent>/<session> and writes the set limits: the
+// cgroupfs driver, whatever c.Driver says (proc.Start picks StartScope
+// for DriverSystemd). It returns the new cgroup directory and the limits
+// written, in order. The session name must be a single path element so
+// nothing is written outside Parent.
 func Prepare(c Cgroup, session string) (string, []LimitApplied, error) {
 	trace.Event("cgroupfs:prepare")
 	if session == "" || session == "." || session == ".." || strings.ContainsAny(session, "/\x00") {
