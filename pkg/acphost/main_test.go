@@ -12,5 +12,8 @@ func TestMain(m *testing.M) {
 	if dir := os.Getenv("ACPHOST_TEST_DETACH_CHILD"); dir != "" {
 		detachChild(dir)
 	}
+	if dir := os.Getenv("ACPHOST_TEST_UNIT_CALLER"); dir != "" {
+		unitCaller(dir, os.Getenv("ACPHOST_TEST_UNIT_SLICE"))
+	}
 	os.Exit(m.Run())
 }
