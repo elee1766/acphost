@@ -1,13 +1,17 @@
 package acphost
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/elee1766/acphost/pkg/proc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,4 +98,68 @@ func TestSystemdOOM(t *testing.T) {
 		assert.Positive(t, ex.Cgroup.MemoryMaxEvents)
 	}
 	assert.Equal(t, "killed", ex.Signal)
+}
+
+// InScope starts the host, and an agent without Spec.Cgroup, in a
+// transient scope acphost-host-*.scope in the slice, and systemd
+// collects the scope once the host is gone (#240).
+func TestSystemdDetachedHostInScope(t *testing.T) {
+	slice := needSystemd(t)
+	dir := t.TempDir()
+	agent := filepath.Join(dir, "agent")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\ncat /proc/self/cgroup >\"$0.cg\"\nexec sleep 600\n"), 0o700))
+	session := "hs-" + filepath.Base(dir)
+	require.NoError(t, WriteSpec(dir, Spec{Protocol: Protocol, Session: session, Command: agent, Dir: dir, GCRootDir: dir}))
+	d, err := StartDetached(dir, nil, InScope(slice))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Stop() })
+
+	scope := procCgroup(t, fmt.Sprintf("/proc/%d/cgroup", d.Pid))
+	assert.Equal(t, slice, filepath.Base(filepath.Dir(scope)), "host")
+	unit := filepath.Base(scope)
+	prefix, _ := cgroup.HostScopeUnit(session, 0)
+	assert.True(t, strings.HasPrefix(unit, strings.TrimSuffix(prefix, "0.scope")), unit)
+	assert.True(t, strings.HasPrefix(unit, "acphost-host-") && strings.HasSuffix(unit, ".scope"), unit)
+	// The holder has left; the host is in the scope itself, no leaf.
+	procs, err := os.ReadFile(filepath.Join(scope, "cgroup.procs"))
+	require.NoError(t, err)
+	assert.Contains(t, strings.Fields(string(procs)), strconv.Itoa(d.Pid))
+	require.Eventually(t, func() bool {
+		b, err := os.ReadFile(agent + ".cg")
+		return err == nil && len(b) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, scope, procCgroup(t, agent+".cg"), "agent")
+
+	require.NoError(t, d.Stop())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	_, err = d.Wait(ctx)
+	require.NoError(t, err)
+	// Wait returns once the lock is released, a moment before the host
+	// exits (1s under -race: GORACE atexit_sleep_ms); then systemd
+	// collects the empty scope.
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(scope)
+		return os.IsNotExist(err)
+	}, 10*time.Second, 10*time.Millisecond, "scope %s not collected", unit)
+}
+
+// InScope and InCgroup together, or InScope with a name that is not a
+// slice, fail before anything starts (#240). Needs no manager.
+func TestDetachedHostInScopeOptions(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, WriteSpec(dir, Spec{Protocol: Protocol, Session: "s1", Command: "/bin/true", Dir: dir, GCRootDir: dir}))
+	for _, opts := range [][]DetachOption{
+		{InScope("acphost.slice"), InCgroup(dir)},
+		{InCgroup(dir), InScope("")},
+		{InScope("/sys/fs/cgroup/x")},
+		{InScope("acphost.scope")},
+	} {
+		_, err := StartDetached(dir, nil, opts...)
+		var pe *PermanentError
+		assert.ErrorAs(t, err, &pe)
+	}
+	assert.NoFileExists(t, filepath.Join(dir, proc.SupervisorPidFile))
+	assert.NoFileExists(t, filepath.Join(dir, LogFile))
+	assert.False(t, Alive(dir))
 }

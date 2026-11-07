@@ -53,6 +53,20 @@ type DetachSpec struct {
 	// starts in, so its load and everything it forks count there and
 	// not in the caller's cgroup. Empty keeps the caller's cgroup.
 	CgroupDir string
+	// Scope, if set, starts the child in a new transient systemd scope
+	// (#240) instead: the manager owns its cgroup, so the child is not
+	// in the caller's unit. Not with CgroupDir.
+	Scope *DetachScope
+}
+
+// DetachScope names the transient systemd scope Detach starts the child
+// in: unit acphost-host-<Name>-<holder pid>.scope (see
+// cgroup.HostScopeUnit) in Slice, empty for the manager's default. The
+// caller needs a manager (cgroup.ManagerSocket) as the systemd cgroup
+// driver does.
+type DetachScope struct {
+	Slice string
+	Name  string
 }
 
 // Detach starts this binary (/proc/self/exe) as s.Argv0 in its own
@@ -64,9 +78,23 @@ func Detach(s DetachSpec) (int, error) {
 	if err := reexec.Check(); err != nil {
 		return 0, err
 	}
+	if s.CgroupDir != "" && s.Scope != nil {
+		return 0, errors.New("proc: detach: CgroupDir and Scope are exclusive")
+	}
 	var cg *os.File
-	if s.CgroupDir != "" {
-		f, err := os.Open(s.CgroupDir)
+	cgDir := s.CgroupDir
+	var hs *hostScope
+	if s.Scope != nil {
+		// The holder keeps the scope until the child is in it.
+		var err error
+		if hs, err = startHostScope(*s.Scope); err != nil {
+			return 0, err
+		}
+		defer hs.release()
+		cgDir = hs.scope.Dir
+	}
+	if cgDir != "" {
+		f, err := os.Open(cgDir)
 		if err != nil {
 			return 0, fmt.Errorf("proc: cgroup: %w", err)
 		}
@@ -106,6 +134,11 @@ func Detach(s DetachSpec) (int, error) {
 	}
 	err = cmd.Start()
 	_ = stW.Close()
+	if hs != nil {
+		// The child holds the scope now, or it never started and
+		// systemd collects the empty scope.
+		hs.release()
+	}
 	if err != nil {
 		return 0, err
 	}
