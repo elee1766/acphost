@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/elee1766/acphost/compare/v0.21.0...v0.22.0) (2026-11-07)
+
+
+### Features
+
+* **acphost:** start the detached host in a transient systemd scope with InScope ([#240](https://github.com/elee1766/acphost/issues/240)) ([#242](https://github.com/elee1766/acphost/issues/242)) ([ef48b08](https://github.com/elee1766/acphost/commit/ef48b089fb6d83e19c82d595be0ebcc323e24b52))
+
 ## [0.21.0](https://github.com/elee1766/acphost/compare/v0.20.0...v0.21.0) (2026-11-06)
 
 
