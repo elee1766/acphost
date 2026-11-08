@@ -60,6 +60,9 @@ func TestDetachedHostSurvivesCaller(t *testing.T) {
 	hex, ok := ReadExit(dir)
 	require.True(t, ok)
 	assert.Equal(t, Exit{Reason: "agent exited", ExitCode: 3}, hex)
+	// No retry: Wait returns once supervisor.lock is released, and that
+	// lock is the only one Alive reads (#222), so Alive is false at once.
+	// A second lock released after it made this flaky before (#216, #262).
 	assert.False(t, Alive(dir))
 	_, ok, err = ReadIsolation(dir)
 	require.NoError(t, err)
