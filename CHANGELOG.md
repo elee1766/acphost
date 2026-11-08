@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.3](https://github.com/elee1766/acphost/compare/v0.22.2...v0.22.3) (2026-11-08)
+
+
+### Documentation
+
+* **ci:** document the failed-tests artifact jobshop reads ([#263](https://github.com/elee1766/acphost/issues/263)) ([#267](https://github.com/elee1766/acphost/issues/267)) ([cbd49d9](https://github.com/elee1766/acphost/commit/cbd49d9741356f48589d717177196f511ffa1b80))
+
 ## [0.22.2](https://github.com/elee1766/acphost/compare/v0.22.1...v0.22.2) (2026-11-08)
 
 
