@@ -17,7 +17,8 @@ The contract, as ci.yml writes it:
 - Artifact name `failed-tests`, a single file `failed-tests.json`,
   default retention (90 days).
 - A JSON array of `{"package": "<import path>", "test": "<name>"}`,
-  one per failed test (subtests included as `Parent/sub`), unique.
+  one per failed test, unique. A failed subtest gives two entries, the
+  parent `TestX` and `TestX/sub`, since go test fails both.
 - Built from every `test-<step>.json` (`go test -json`) after all test
   steps. Each test step has `if: success() || failure()` and keeps the
   go test exit code in `rc`, so a failure in an early step still lets
