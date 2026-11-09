@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.4](https://github.com/elee1766/acphost/compare/v0.22.3...v0.22.4) (2026-11-09)
+
+
+### Bug fixes
+
+* **acphost:** close client connections when Main returns ([#277](https://github.com/elee1766/acphost/issues/277)) ([#278](https://github.com/elee1766/acphost/issues/278)) ([7f6c7df](https://github.com/elee1766/acphost/commit/7f6c7df8a77fbd02a1ecc910b2ec4a1c5a1f4801))
+
 ## [0.22.3](https://github.com/elee1766/acphost/compare/v0.22.2...v0.22.3) (2026-11-08)
 
 
