@@ -36,6 +36,10 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 	if err := checkSession(s); err != nil {
 		return err
 	}
+	// Pure spec errors first, so they do not depend on the host.
+	if err := checkJoinSpec(s); err != nil {
+		return err
+	}
 	if c.hostDir != "" {
 		if err := CheckSocketPath(c.hostDir); err != nil {
 			return err

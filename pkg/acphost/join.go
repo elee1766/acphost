@@ -27,11 +27,11 @@ var nsFlags = map[string]int{
 // it: the path and the namespace it resolved to (proc.JoinApplied).
 type JoinApplied = proc.JoinApplied
 
-// checkJoin checks Spec.Join: known types, no type both joined and
-// created, each path a namespace of its type, and CAP_SYS_ADMIN over
-// each (owner uid is ours and it is not our own user namespace), so a
-// bad join fails here instead of as a bare EPERM from the spawn.
-func checkJoin(s Spec) error {
+// checkJoinSpec checks the parts of Spec.Join that depend only on the
+// spec: known types, and no clash with User or the sandbox network. It
+// runs before any host-dependent preflight so these errors read the same
+// on every host.
+func checkJoinSpec(s Spec) error {
 	if len(s.Join) == 0 {
 		return nil
 	}
@@ -48,6 +48,18 @@ func checkJoin(s Spec) error {
 	}
 	if _, ok := s.Join["net"]; ok && s.Sandbox != nil && (s.Sandbox.Network == "none" || s.Sandbox.Network == "pasta") {
 		return Permanentf("join: join.net conflicts with sandbox network %q, which makes its own network namespace", s.Sandbox.Network)
+	}
+	return nil
+}
+
+// checkJoin checks Spec.Join against the host (call checkJoinSpec
+// first): nsenter is present, each path is a namespace of its type, and
+// we have CAP_SYS_ADMIN over each (owner uid is ours and it is not our
+// own user namespace), so a bad join fails here instead of as a bare
+// EPERM from the spawn.
+func checkJoin(s Spec) error {
+	if len(s.Join) == 0 {
+		return nil
 	}
 	if _, err := trace.LookPath("nsenter"); err != nil {
 		return Permanentf("join: %w", err)

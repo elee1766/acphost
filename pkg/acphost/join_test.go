@@ -117,6 +117,34 @@ func TestCheckJoinRejects(t *testing.T) {
 	}
 }
 
+// TestCheckJoinSpecErrorsWithoutHostTools: the spec errors read the same
+// when newuidmap and nsenter are not on PATH.
+func TestCheckJoinSpecErrorsWithoutHostTools(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	u := testUser()
+	for name, tc := range map[string]struct {
+		s    func(Spec) Spec
+		want string
+	}{
+		"with user": {func(s Spec) Spec {
+			s.Join, s.User = map[string]string{"net": "/proc/self/ns/net"}, &u
+			return s
+		}, "cannot combine join with user"},
+		"net with pasta": {func(s Spec) Spec {
+			s.Join, s.Sandbox = map[string]string{"net": "/proc/self/ns/net"}, &sandbox.Sandbox{Network: "pasta"}
+			return s
+		}, "conflicts with sandbox network"},
+		"unknown type": {func(s Spec) Spec { s.Join = map[string]string{"time": "/proc/self/ns/time"}; return s }, "unknown namespace type"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := CheckSpawn(tc.s(joinSpec(t, t.TempDir(), "true\n", nil)), false)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			assert.True(t, Permanent(err))
+		})
+	}
+}
+
 func TestJoinPlanOrder(t *testing.T) {
 	s := Spec{Join: map[string]string{"mnt": "m", "net": "n", "user": "u"}}
 	assert.Equal(t, []string{"user=u", "net=n", "mnt=m"}, JoinPlan(s))
