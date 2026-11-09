@@ -765,7 +765,9 @@ ex, _ := h.Exit() // waits for the agent to exit
 ```
 
 Start returns once acp.sock accepts. When the agent exits, Main returns
-and `h.Done()` closes. At test end, cleanup sends the stop method, waits
+and `h.Done()` closes. Main also closes every client connection, as a
+real host process does by exiting, so a client reading from the host sees
+EOF. At test end, cleanup sends the stop method, waits
 for Main and removes supervisor.pid. While Main runs its SIGTERM and SIGINT
 handlers apply to the whole test process. See `docs/notes/114-acphosttest.md`.
 

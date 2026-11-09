@@ -1,6 +1,8 @@
 package acphosttest_test
 
 import (
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -124,4 +126,36 @@ func TestCustomPrefix(t *testing.T) {
 	ex, ok := h.Exit()
 	require.True(t, ok)
 	assert.True(t, strings.HasPrefix(ex.Reason, "controller requested stop"), ex.Reason)
+}
+
+// A real host exit closes every client connection. The in-process host must
+// too, or a client blocked in a read never sees the exit (#277).
+func TestAgentExitClosesClients(t *testing.T) {
+	noLeak(t)
+	dir := t.TempDir()
+	h := acphosttest.Start(t, dir, acphost.Spec{
+		Session: "s1", Command: agent(t, dir, "read x; exit 0"), Dir: dir, GCRootDir: dir,
+	})
+	nc, rd, _, err := acphost.Connect(t.Context(), dir)
+	require.NoError(t, err)
+	defer func() { _ = nc.Close() }()
+	// A second connection that never finishes its hello must close as well.
+	half, err := net.Dial("unix", acphost.SocketPath(dir))
+	require.NoError(t, err)
+	defer func() { _ = half.Close() }()
+
+	_, err = nc.Write([]byte(`{"jsonrpc":"2.0","method":"x"}` + "\n"))
+	require.NoError(t, err)
+
+	for name, r := range map[string]io.Reader{"connected": rd, "half-open": half} {
+		_ = nc.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = half.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, err := io.Copy(io.Discard, r)
+		require.NoError(t, err, name+": want EOF, got a read error")
+	}
+	select {
+	case <-h.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Main did not return")
+	}
 }

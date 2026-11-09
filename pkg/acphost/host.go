@@ -85,6 +85,13 @@ type Host struct {
 	stopOnce   sync.Once
 	stopping   chan struct{}
 	stopReason string // first reason passed to stop, written once inside stopOnce
+
+	// Every accepted connection, so run can close them on return: a host
+	// process closes them by exiting, an in-process host (acphosttest) must
+	// do it itself (#277). Separate from mu: serveConn holds mu while writing.
+	connsMu     sync.Mutex
+	conns       map[net.Conn]struct{}
+	connsClosed bool
 }
 
 // Main runs the host for the session directory dir until the agent exits.
@@ -200,7 +207,11 @@ func (h *Host) run() error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = ln.Close(); _ = os.Remove(sockPath) }()
+	defer func() {
+		_ = ln.Close()
+		h.closeConns()
+		_ = os.Remove(sockPath)
+	}()
 	if err := os.Chmod(sockPath, 0o600); err != nil {
 		return err
 	}
@@ -582,14 +593,51 @@ func (h *Host) acceptLoop(ln net.Listener) {
 		if err != nil {
 			return
 		}
+		if !h.trackConn(nc) {
+			_ = nc.Close()
+			return
+		}
 		go h.serveConn(nc)
 	}
+}
+
+// trackConn records nc for closeConns. It reports false once closeConns has
+// run, so a connection accepted during shutdown is not left open.
+func (h *Host) trackConn(nc net.Conn) bool {
+	h.connsMu.Lock()
+	defer h.connsMu.Unlock()
+	if h.connsClosed {
+		return false
+	}
+	if h.conns == nil {
+		h.conns = map[net.Conn]struct{}{}
+	}
+	h.conns[nc] = struct{}{}
+	return true
+}
+
+func (h *Host) untrackConn(nc net.Conn) {
+	h.connsMu.Lock()
+	delete(h.conns, nc)
+	h.connsMu.Unlock()
+}
+
+// closeConns closes every accepted connection, which also unblocks the
+// handler goroutines reading from them.
+func (h *Host) closeConns() {
+	h.connsMu.Lock()
+	defer h.connsMu.Unlock()
+	h.connsClosed = true
+	for nc := range h.conns {
+		_ = nc.Close()
+	}
+	h.conns = nil
 }
 
 // serveConn runs one controller connection: hello, welcome, then ACP.
 // A new connection replaces the previous one.
 func (h *Host) serveConn(nc net.Conn) {
-	defer func() { _ = nc.Close() }()
+	defer func() { h.untrackConn(nc); _ = nc.Close() }()
 	rd := bufio.NewReaderSize(nc, 1<<20)
 	_ = nc.SetReadDeadline(time.Now().Add(10 * time.Second))
 	helloLine, err := rd.ReadBytes('\n')
