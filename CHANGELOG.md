@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.5](https://github.com/elee1766/acphost/compare/v0.22.4...v0.22.5) (2026-11-09)
+
+
+### Bug fixes
+
+* **acphost:** check join spec errors before host preflight ([#281](https://github.com/elee1766/acphost/issues/281)) ([#282](https://github.com/elee1766/acphost/issues/282)) ([d5d5f28](https://github.com/elee1766/acphost/commit/d5d5f285776d0a01be90af1062393e511f7cad0f))
+
 ## [0.22.4](https://github.com/elee1766/acphost/compare/v0.22.3...v0.22.4) (2026-11-09)
 
 
