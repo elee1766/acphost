@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/elee1766/acphost/compare/v0.22.5...v0.23.0) (2026-11-10)
+
+
+### Features
+
+* **acphost:** add optional TCP listener with mutual tls ([#285](https://github.com/elee1766/acphost/issues/285)) ([#286](https://github.com/elee1766/acphost/issues/286)) ([c69b9a6](https://github.com/elee1766/acphost/commit/c69b9a6c4dad1356b08bd65d4f4b19f20f37dcfe))
+
 ## [0.22.5](https://github.com/elee1766/acphost/compare/v0.22.4...v0.22.5) (2026-11-09)
 
 
