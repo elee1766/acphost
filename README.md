@@ -600,13 +600,16 @@ acphost stop --dir STATEDIR [--grace 30s]
   stderr), and returns once the agent started. Clients `Connect` to the
   socket afterwards; `status`, `stop` and `wait` take the same `--dir`.
   See `docs/notes/211-cli-host-detached.md`.
+- `host` and `start --host` also take `--listen`, `--tls-cert`,
+  `--tls-key`, `--tls-client-ca` and `--tls-allow` for the TCP listener
+  (see "TCP listener").
 - Flags: `--network host|none|pasta`, `--ro SRC[:DST]`, `--rw SRC[:DST]`,
   `--join TYPE=PATH`, `--print` (bwrap/pasta argv, uid maps, join plan;
   runs nothing), `--check` (CheckSpawn and Preflight), `-v` (isolation
   record after the run).
 
-The config is YAML (or JSON) with `sandbox`, `user`, `cgroup`, `env` and
-`join`, using the spec's JSON keys, so a jobshop section pastes over.
+The config is YAML (or JSON) with `sandbox`, `user`, `cgroup`, `env`,
+`join`, `listen` and `tls`, using the spec's JSON keys, so a jobshop section pastes over.
 Unknown keys are an error.
 
 ```yaml
@@ -619,6 +622,92 @@ cgroup: {parent: /sys/fs/cgroup/acphost, memory_max: 2G, pids_max: 512}
 ```
 
 More configs in `docs/notes/165-cli.md`.
+
+## TCP listener
+
+A host can listen on a TCP address as well as `acp.sock`, for a
+controller that cannot open the session directory (another machine, a
+container, a Kubernetes pod). It is off by default. `acp.sock` is always
+there and unchanged: no TLS, file mode 0600.
+
+```go
+spec.Listen = "10.0.0.5:8443" // an explicit host; port 0 picks a free port
+spec.TLS = &acphost.ListenTLS{
+	Cert:     "/certs/server.crt", // the host's certificate and key (PEM)
+	Key:      "/certs/server.key",
+	ClientCA: "/certs/client-ca.crt", // client certificates must chain to this
+	Allow:    []string{"spiffe://cluster.local/ns/jobshop/sa/controller"}, // optional
+}
+```
+
+CLI: `acphost host|start --host --listen ADDR --tls-cert F --tls-key F
+--tls-client-ca F [--tls-allow SAN]...`, and the same keys (`listen`,
+`tls: {cert, key, client_ca, allow}`) in the `-c` file. The CLI prints
+the bound address and whether TLS is on next to the socket path.
+
+- Once the TCP listener is up, before the agent starts, the host writes
+  `listen.json` (`{"addr":"127.0.0.1:41873","tls":true}`) to the session
+  dir and removes it when `Main` returns. `ReadListen(dir)` reads it, and
+  `WithListening` is a callback for the same. This is how a caller learns
+  the port after asking for port 0. No listen address, no TCP listener,
+  no file.
+- `Listen` must name its host. `:8443` is rejected. To bind every
+  interface write `0.0.0.0:8443` or `[::]:8443`. `CheckSpawn` also
+  rejects a TLS block without `Listen`, one missing `cert`, `key` or
+  `client_ca`, and files that do not load, as `PermanentError`s.
+- Client: `ConnectTCP(ctx, addr, opts...)` does the same hello and
+  welcome as `Connect`, with the same `ConnectOption`s.
+  `WithClientTLSFiles(ClientTLSFiles{Cert, Key, CA, ServerName})` reads
+  the files on every dial; `WithClientTLS(*tls.Config)` takes a config
+  with its own certificate source. With neither, the dial is plaintext.
+  There is no session directory, so no `SpawnError` from `exit.json`.
+- The semantics are those of the socket. A connection on either transport
+  replaces the current controller, `Hello.Since` replay, turn end and
+  pending agent requests work the same, a TCP controller counts for the
+  lease, and every TCP connection is closed when `Main` returns.
+
+### With TLS
+
+The listener requires and verifies a client certificate (TLS 1.3 minimum).
+A client with no certificate, one from another CA, an expired one, a
+plaintext client, or one whose DNS and URI SANs match nothing in `Allow`
+gets no welcome. The host logs `tcp client refused` with the peer address
+and the reason, keeps running, and the current controller stays
+connected. `Allow` matches DNS SANs (case-insensitive) and URI SANs
+exactly, so a SPIFFE ID is an entry as is; empty means any certificate the
+CA signed.
+
+Rotation needs no restart. The host reads `cert`, `key` and `client_ca`
+again for every new connection, so files replaced by cert-manager or SPIRE
+apply to the next handshake. If they cannot be read or parsed at that
+moment (a half-written rotation, a deleted file) the host logs a warning
+and serves with the last good set. A connection that is already open is
+not dropped when the files change. On the client side, the file-path
+option reads its files on every dial, so a rotated client certificate is
+used on the next connection.
+
+The TLS files are read by the host process, which runs outside the
+sandbox. They are not mounted into the agent's sandbox and their paths are
+not in the agent's environment.
+
+### Without TLS
+
+With a listen address and no TLS block the listener is plaintext with no
+authentication, and the host logs a warning naming the address at start.
+There is no token or other check. Anyone who can reach the address can
+send prompts and the stop method. That includes, with
+`Sandbox.Network: "host"` (the default), the agent itself on a loopback
+address, every other session's agent and every local user. Use it only
+where the network is the access control (a pod-local address, a firewalled
+interface).
+
+### Dead peers
+
+A TCP peer can vanish without closing. Accepted connections get TCP
+keepalive (30s idle, 3 probes 10s apart) and `TCP_USER_TIMEOUT` of 60s,
+so the host sees an error on a lost peer within about 60s, `dropConn`
+clears the controller, and the lease can run out. Details in
+`docs/notes/285-tcp-listen.md`.
 
 ## Preflight
 

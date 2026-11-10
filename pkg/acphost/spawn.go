@@ -40,10 +40,16 @@ func CheckSpawn(s Spec, dirCreated bool, opts ...SpawnOption) error {
 	if err := checkJoinSpec(s); err != nil {
 		return err
 	}
+	if err := checkListenSpec(s); err != nil {
+		return err
+	}
 	if c.hostDir != "" {
 		if err := CheckSocketPath(c.hostDir); err != nil {
 			return err
 		}
+	}
+	if err := checkListenFiles(s); err != nil {
+		return err
 	}
 	if s.Cgroup != nil {
 		if err := cgroup.Check(*s.Cgroup); err != nil {
