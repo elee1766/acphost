@@ -1,6 +1,6 @@
 package acphost
 
-import "github.com/elee1766/acphost/pkg/xerr"
+import "github.com/gfx-labs/acphost/pkg/xerr"
 
 // PermanentError is a spawn failure that retrying cannot fix: the host
 // config points at something that is not there (#146). It is xerr's type,

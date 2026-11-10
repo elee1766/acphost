@@ -8,7 +8,7 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/reexec"
 )
 
 // Pinned is a set of namespaces kept alive by a holder process, made by

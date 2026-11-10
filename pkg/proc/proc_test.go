@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/proc"
-	"github.com/elee1766/acphost/pkg/reexec"
-	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

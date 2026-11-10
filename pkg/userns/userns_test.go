@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/hostenv"
-	"github.com/elee1766/acphost/pkg/xerr"
+	"github.com/gfx-labs/acphost/pkg/hostenv"
+	"github.com/gfx-labs/acphost/pkg/xerr"
 )
 
 func TestParseSubIDs(t *testing.T) {

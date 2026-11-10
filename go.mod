@@ -1,4 +1,4 @@
-module github.com/elee1766/acphost
+module github.com/gfx-labs/acphost
 
 go 1.27.3
 

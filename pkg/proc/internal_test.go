@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/hostenv"
-	"github.com/elee1766/acphost/pkg/userns"
+	"github.com/gfx-labs/acphost/pkg/hostenv"
+	"github.com/gfx-labs/acphost/pkg/userns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/proc"
-	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/reexec"
 )
 
 // hostArgv0 is the detached host's argv[0], dispatched by MaybeChild.

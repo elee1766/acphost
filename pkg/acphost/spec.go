@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/proc"
-	"github.com/elee1766/acphost/pkg/sandbox"
-	"github.com/elee1766/acphost/pkg/userns"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/userns"
 )
 
 // Protocol is the version of the wire format between client and host:

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/elee1766/acphost/pkg/proc"
-	"github.com/elee1766/acphost/pkg/trace"
+	"github.com/gfx-labs/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/trace"
 	"golang.org/x/sys/unix"
 )
 

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/elee1766/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/proc"
 )
 
 // Isolation is isolation.json: what the host actually applied when it

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
 )
 
 // dnsFixture is the all-OK fixture with a fake dns check that fails

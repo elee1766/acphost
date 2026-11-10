@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/hostenv"
-	"github.com/elee1766/acphost/pkg/sandbox"
-	"github.com/elee1766/acphost/pkg/userns"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/hostenv"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/userns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

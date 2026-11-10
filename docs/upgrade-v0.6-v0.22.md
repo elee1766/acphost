@@ -12,7 +12,7 @@ spec keys an older host ignores. Each section says which.
 
 ## Steps
 
-1. `go get github.com/elee1766/acphost@v0.22.0`.
+1. `go get github.com/gfx-labs/acphost@v0.22.0`.
 2. Rewrite import paths (v0.12).
 3. Use `sandbox`, `cgroup` and `userns` for the isolation names (v0.14).
 4. Call `acphost.MaybeChild()` (or `proc.MaybeChild()`) first in `main`
@@ -81,28 +81,28 @@ should not fail at spawn.
 
 ### v0.12.0: import paths under `pkg/`
 
-CHANGELOG: "import paths moved under pkg/ (github.com/elee1766/acphost
--> github.com/elee1766/acphost/pkg/acphost, github.com/elee1766/acphost/proc
+CHANGELOG: "import paths moved under pkg/ (github.com/gfx-labs/acphost
+-> github.com/gfx-labs/acphost/pkg/acphost, github.com/gfx-labs/acphost/proc
 -> .../pkg/proc, and so on)."
 
 | | |
 |---|---|
-| old | `github.com/elee1766/acphost` |
-| new | `github.com/elee1766/acphost/pkg/acphost` |
+| old | `github.com/gfx-labs/acphost` |
+| new | `github.com/gfx-labs/acphost/pkg/acphost` |
 | why | one layout, libraries in `pkg/` and the CLI in `cmd/`; the package name stays `acphost` so only imports change (`docs/notes/164-pkg-layout.md`) |
 | Protocol | 1, any mix. Go API only |
 
-The module path is unchanged, so `go get github.com/elee1766/acphost`
+The module path is unchanged, so `go get github.com/gfx-labs/acphost`
 still works. Old to new:
 
 | old import | new import |
 |---|---|
-| `github.com/elee1766/acphost` | `github.com/elee1766/acphost/pkg/acphost` |
-| `github.com/elee1766/acphost/acphosttest` | `github.com/elee1766/acphost/pkg/acphosttest` |
-| `github.com/elee1766/acphost/cgroup` | `github.com/elee1766/acphost/pkg/cgroup` |
-| `github.com/elee1766/acphost/proc` | `github.com/elee1766/acphost/pkg/proc` |
-| `github.com/elee1766/acphost/sandbox` | `github.com/elee1766/acphost/pkg/sandbox` |
-| `github.com/elee1766/acphost/userns` | `github.com/elee1766/acphost/pkg/userns` |
+| `github.com/gfx-labs/acphost` | `github.com/gfx-labs/acphost/pkg/acphost` |
+| `github.com/gfx-labs/acphost/acphosttest` | `github.com/gfx-labs/acphost/pkg/acphosttest` |
+| `github.com/gfx-labs/acphost/cgroup` | `github.com/gfx-labs/acphost/pkg/cgroup` |
+| `github.com/gfx-labs/acphost/proc` | `github.com/gfx-labs/acphost/pkg/proc` |
+| `github.com/gfx-labs/acphost/sandbox` | `github.com/gfx-labs/acphost/pkg/sandbox` |
+| `github.com/gfx-labs/acphost/userns` | `github.com/gfx-labs/acphost/pkg/userns` |
 
 A v0.6 caller only has the first line: `acphosttest` arrived in v0.8.2,
 and `cgroup`, `proc`, `sandbox` and `userns` in v0.11.0. `acphost.X`
@@ -111,13 +111,13 @@ references keep their name.
 Old:
 
 ```go
-import "github.com/elee1766/acphost"
+import "github.com/gfx-labs/acphost"
 ```
 
 New:
 
 ```go
-import "github.com/elee1766/acphost/pkg/acphost"
+import "github.com/gfx-labs/acphost/pkg/acphost"
 ```
 
 ### v0.14.0: root isolation aliases removed

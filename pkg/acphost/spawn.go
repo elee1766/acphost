@@ -7,10 +7,10 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/sandbox"
-	"github.com/elee1766/acphost/pkg/trace"
-	"github.com/elee1766/acphost/pkg/userns"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/trace"
+	"github.com/gfx-labs/acphost/pkg/userns"
 )
 
 // Permanent reports whether a spawn error will repeat on every attempt:

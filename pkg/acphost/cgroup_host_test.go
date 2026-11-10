@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
