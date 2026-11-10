@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.24.0](https://github.com/gfx-labs/acphost/compare/v0.23.0...v0.24.0) (2026-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* move module to github.com/gfx-labs/acphost ([#288](https://github.com/gfx-labs/acphost/issues/288))
+
+### Features
+
+* move module to github.com/gfx-labs/acphost ([#288](https://github.com/gfx-labs/acphost/issues/288)) ([c274311](https://github.com/gfx-labs/acphost/commit/c2743114212e5bbc695d862a943b31794c0902a7))
+
 ## [0.23.0](https://github.com/elee1766/acphost/compare/v0.22.5...v0.23.0) (2026-11-10)
 
 
