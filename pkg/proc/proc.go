@@ -17,7 +17,7 @@ package proc
 import (
 	"os"
 
-	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/reexec"
 )
 
 // MaybeChild runs an acphost helper and does not return when this

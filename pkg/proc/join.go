@@ -5,8 +5,8 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/elee1766/acphost/pkg/trace"
-	"github.com/elee1766/acphost/pkg/xerr"
+	"github.com/gfx-labs/acphost/pkg/trace"
+	"github.com/gfx-labs/acphost/pkg/xerr"
 )
 
 // JoinTypes lists the namespace types Spec.Join accepts, in the order

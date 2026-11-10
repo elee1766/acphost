@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/elee1766/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/acphost"
 )
 
 func promptFrame(seq int64, text string) acphost.Frame {

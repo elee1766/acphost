@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/trace"
+	"github.com/gfx-labs/acphost/pkg/trace"
 )
 
 // stderrTap copies the sandboxed agent's stderr to the host log and

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/reexec"
 	"golang.org/x/sys/unix"
 )
 

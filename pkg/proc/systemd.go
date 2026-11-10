@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/reexec"
 )
 
 // scopeLeaf is the cgroup under a systemd scope the command runs in.

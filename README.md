@@ -1,9 +1,9 @@
 # acphost
 
-[![ci](https://github.com/elee1766/acphost/actions/workflows/ci.yml/badge.svg)](https://github.com/elee1766/acphost/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/elee1766/acphost.svg)](https://pkg.go.dev/github.com/elee1766/acphost/pkg/acphost)
-[![Go Report Card](https://goreportcard.com/badge/github.com/elee1766/acphost)](https://goreportcard.com/report/github.com/elee1766/acphost)
-[![Release](https://img.shields.io/github/v/release/elee1766/acphost?sort=semver)](https://github.com/elee1766/acphost/releases)
+[![ci](https://github.com/gfx-labs/acphost/actions/workflows/ci.yml/badge.svg)](https://github.com/gfx-labs/acphost/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/gfx-labs/acphost.svg)](https://pkg.go.dev/github.com/gfx-labs/acphost/pkg/acphost)
+[![Go Report Card](https://goreportcard.com/badge/github.com/gfx-labs/acphost)](https://goreportcard.com/report/github.com/gfx-labs/acphost)
+[![Release](https://img.shields.io/github/v/release/gfx-labs/acphost?sort=semver)](https://github.com/gfx-labs/acphost/releases)
 
 acphost is a Go library for the [Agent Client Protocol
 (ACP)](https://agentclientprotocol.com). It runs a coding agent such as
@@ -28,13 +28,13 @@ restarts, it reconnects and resumes from a journal sequence number.
 ## Status
 
 Pre-v1, Linux only. Extracted from
-[jobshop](https://github.com/elee1766/jobshop) `pkg/host`, which uses it
+[jobshop](https://github.com/gfx-labs/jobshop) `pkg/host`, which uses it
 to run agent sessions that survive controller restarts.
 
 ## Install
 
 ```sh
-go get github.com/elee1766/acphost
+go get github.com/gfx-labs/acphost
 ```
 
 Packages are under `pkg/`:
@@ -49,7 +49,7 @@ Packages are under `pkg/`:
 | `pkg/acphosttest` | an in-process host for tests |
 | `cmd/acphost` | the `acphost` CLI |
 
-The CLI: `go install github.com/elee1766/acphost/cmd/acphost@latest`.
+The CLI: `go install github.com/gfx-labs/acphost/cmd/acphost@latest`.
 
 ### Upgrading
 
@@ -59,7 +59,7 @@ with old and new code for each breaking change. In short:
 1. Call `acphost.MaybeChild()` first in `main` and in `TestMain`
    (v0.11).
 2. Change import paths: the root package is
-   `github.com/elee1766/acphost/pkg/acphost`, and the others are under
+   `github.com/gfx-labs/acphost/pkg/acphost`, and the others are under
    `pkg/` (v0.12).
 3. Use `sandbox`, `cgroup` and `userns` instead of the root isolation
    names: `acphost.Sandbox` is `sandbox.Sandbox`, `acphost.Cgroup` is
@@ -88,8 +88,8 @@ import (
 	"net"
 	"path/filepath"
 
-	"github.com/elee1766/acphost/pkg/acphost"
-	"github.com/elee1766/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/proc"
 )
 
 func main() {
@@ -878,7 +878,7 @@ checks. No API change since v0.9.0. `Protocol` stays 1. Details in
 
 - `Preflight` nft check (#138), `WithDNSCheck` (#139).
 - Journal follow via inotify (#141).
-- jobshop on v0.9.0 (elee1766/jobshop#752).
+- jobshop on v0.9.0 (gfx-labs/jobshop#752).
 
 v0.9.0 (2026-11-06): in-process test host, Preflight fix hints and DNS
 and nft checks, journal tail and follow speedups. `Protocol` stays 1.

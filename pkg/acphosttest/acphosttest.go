@@ -32,8 +32,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/acphost"
-	"github.com/elee1766/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/proc"
 )
 
 // StopTimeout bounds how long Stop waits for Main to return.

@@ -2,8 +2,8 @@
 
 Go library: a detached host process for one ACP agent session (spawn,
 socket proxy, journal, replay, lease). Go 1.27, module
-`github.com/elee1766/acphost`. Origin: `pkg/host` in
-github.com/elee1766/jobshop, its main user.
+`github.com/gfx-labs/acphost`. Origin: `pkg/host` in
+github.com/gfx-labs/jobshop, its main user.
 
 - Check: `go build ./... && go vet ./... && go test ./... && golangci-lint run ./...`
   (golangci-lint v2.15.0, config `.golangci.yml`).

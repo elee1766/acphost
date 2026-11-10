@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
 )
 
 // CheckSpawn reports a missing pasta as permanent, like a missing bwrap.

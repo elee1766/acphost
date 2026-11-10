@@ -3,8 +3,8 @@ package proc
 import (
 	"strings"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/sandbox"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/sandbox"
 )
 
 // Isolation is what Start actually applied, the content of an ACP

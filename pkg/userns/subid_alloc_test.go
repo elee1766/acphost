@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/elee1766/acphost/pkg/xerr"
+	"github.com/gfx-labs/acphost/pkg/xerr"
 )
 
 // TestSubIDAllocHelper is a child process: it allocates a block in

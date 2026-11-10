@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/elee1766/acphost/pkg/trace"
+	"github.com/gfx-labs/acphost/pkg/trace"
 )
 
 // Sandbox describes how to confine the agent process. Only the

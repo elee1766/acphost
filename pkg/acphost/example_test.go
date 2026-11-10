@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/acphost"
 )
 
 // A client writes a spec, starts the host, connects to acp.sock, and

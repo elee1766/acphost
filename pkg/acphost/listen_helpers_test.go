@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/acphost"
-	"github.com/elee1766/acphost/pkg/acphosttest"
+	"github.com/gfx-labs/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/acphosttest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

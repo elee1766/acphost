@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
 )
 
 // None of these examples has an "Output:" line, so go test compiles them

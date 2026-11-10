@@ -3,7 +3,7 @@ package acphost_test
 import (
 	"fmt"
 
-	"github.com/elee1766/acphost/pkg/acphost"
+	"github.com/gfx-labs/acphost/pkg/acphost"
 )
 
 // Pin creates namespaces and keeps them alive, so several sessions can

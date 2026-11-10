@@ -19,8 +19,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/cgroup"
-	"github.com/elee1766/acphost/pkg/proc"
+	"github.com/gfx-labs/acphost/pkg/cgroup"
+	"github.com/gfx-labs/acphost/pkg/proc"
 	"golang.org/x/sys/unix"
 )
 

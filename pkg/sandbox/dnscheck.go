@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/elee1766/acphost/pkg/reexec"
-	"github.com/elee1766/acphost/pkg/xerr"
+	"github.com/gfx-labs/acphost/pkg/reexec"
+	"github.com/gfx-labs/acphost/pkg/xerr"
 )
 
 // CheckDNS resolves name inside a pasta namespace set up as s
