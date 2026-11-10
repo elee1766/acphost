@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,9 +111,15 @@ func Main(dir string, opts ...Option) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log := o.logger
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	}
 	spec, err := ReadSpec(dir)
 	if err != nil {
+		return err
+	}
+	if err := checkListenSpec(spec); err != nil {
 		return err
 	}
 	// The proc supervisor's lock and pid file are the host's only ones
@@ -198,6 +205,44 @@ func (h *Host) run() error {
 		h.off = st.Size()
 	}
 
+	// TCP next to the socket, up before the agent starts, served by the
+	// same accept loop. Its connections are tracked like the socket's, so
+	// closeConns closes them too.
+	var tcpLn net.Listener
+	var wrapTCP func(net.Conn) net.Conn
+	_ = os.Remove(filepath.Join(h.dir, ListenFile))
+	if h.spec.Listen != "" {
+		if h.spec.TLS != nil {
+			rl, err := newTLSReloader(*h.spec.TLS, h.log)
+			if err != nil {
+				return fmt.Errorf("spec tls: %w", err)
+			}
+			cfg := rl.serverConfig()
+			wrapTCP = func(nc net.Conn) net.Conn { return tls.Server(nc, cfg) }
+		}
+		tcpLn, err = listenTCP(h.spec.Listen, h.log)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = tcpLn.Close()
+			h.closeConns()
+			_ = os.Remove(filepath.Join(h.dir, ListenFile))
+		}()
+		info := ListenInfo{Addr: tcpLn.Addr().String(), TLS: h.spec.TLS != nil}
+		if err := writeListen(h.dir, info); err != nil {
+			return err
+		}
+		if info.TLS {
+			h.log.Info("tcp listener, mutual tls", "addr", info.Addr)
+		} else {
+			h.log.Warn("tcp listener without tls: anyone who can reach the address can send prompts and stop the host", "addr", info.Addr)
+		}
+		if f := h.opts.listening; f != nil {
+			f(info)
+		}
+	}
+
 	if err := CheckSocketPath(h.dir); err != nil {
 		return err
 	}
@@ -246,7 +291,10 @@ func (h *Host) run() error {
 		case <-h.stopping:
 		}
 	}()
-	go h.acceptLoop(ln)
+	go h.acceptLoop(ln, nil)
+	if tcpLn != nil {
+		go h.acceptLoop(tcpLn, wrapTCP)
+	}
 	go h.leaseLoop()
 	// After the signal handler: StartDetached returns on this, and a Stop
 	// right after it must reach the handler, not kill the host by default.
@@ -587,11 +635,16 @@ func (h *Host) routeAgent(f frame, line []byte) ([]byte, *controllerConn) {
 	}
 }
 
-func (h *Host) acceptLoop(ln net.Listener) {
+// acceptLoop serves ln until it is closed. wrap, if set, turns each
+// accepted connection into the one served (a TLS server connection).
+func (h *Host) acceptLoop(ln net.Listener, wrap func(net.Conn) net.Conn) {
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
 			return
+		}
+		if wrap != nil {
+			nc = wrap(nc)
 		}
 		if !h.trackConn(nc) {
 			_ = nc.Close()
@@ -638,6 +691,17 @@ func (h *Host) closeConns() {
 // A new connection replaces the previous one.
 func (h *Host) serveConn(nc net.Conn) {
 	defer func() { h.untrackConn(nc); _ = nc.Close() }()
+	if tc, ok := nc.(*tls.Conn); ok {
+		// Handshake before anything else, so a refused client is logged
+		// with its reason and never reaches the controller swap below.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := tc.HandshakeContext(ctx)
+		cancel()
+		if err != nil {
+			h.log.Warn("tcp client refused", "peer", nc.RemoteAddr().String(), "err", err)
+			return
+		}
+	}
 	rd := bufio.NewReaderSize(nc, 1<<20)
 	_ = nc.SetReadDeadline(time.Now().Add(10 * time.Second))
 	helloLine, err := rd.ReadBytes('\n')
@@ -785,6 +849,8 @@ type ConnectOption func(*connectOptions)
 
 type connectOptions struct {
 	methodPrefix string
+	tlsFiles     *ClientTLSFiles
+	tlsConfig    *tls.Config
 }
 
 // WithMethodPrefix sets the extension method prefix the controller
@@ -813,6 +879,50 @@ func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, 
 		}
 		return nil, nil, w, err
 	}
+	return hello(nc, o, func(err error) error {
+		// The socket is up before the agent starts, so a host whose
+		// spawn failed closes it without a welcome.
+		if se := spawnFailure(dir); se != nil {
+			return se
+		}
+		return err
+	})
+}
+
+// ConnectTCP dials a host's TCP listener (Spec.Listen) at addr and
+// performs the same hello handshake as Connect. With WithClientTLSFiles
+// or WithClientTLS the connection is TLS, else it is plaintext. A host
+// listening with Spec.TLS refuses a client without a certificate its CA
+// signed (or not in Allow) by closing the connection: the error shows up
+// here at the latest on reading the welcome. There is no session
+// directory, so no exit.json: a host that failed to start is a dial or
+// read error, not a *SpawnError.
+func ConnectTCP(ctx context.Context, addr string, opts ...ConnectOption) (net.Conn, *bufio.Reader, Welcome, error) {
+	var o connectOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	var w Welcome
+	cfg, err := o.clientTLS()
+	if err != nil {
+		return nil, nil, w, err
+	}
+	var nc net.Conn
+	if cfg != nil {
+		nc, err = (&tls.Dialer{Config: cfg}).DialContext(ctx, "tcp", addr)
+	} else {
+		nc, err = (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	}
+	if err != nil {
+		return nil, nil, w, err
+	}
+	return hello(nc, o, func(err error) error { return err })
+}
+
+// hello sends the hello line on nc and reads the welcome. It closes nc on
+// failure. readErr maps an error reading the welcome.
+func hello(nc net.Conn, o connectOptions, readErr func(error) error) (net.Conn, *bufio.Reader, Welcome, error) {
+	var w Welcome
 	fail := func(err error) (net.Conn, *bufio.Reader, Welcome, error) {
 		_ = nc.Close()
 		return nil, nil, w, err
@@ -825,12 +935,7 @@ func Connect(ctx context.Context, dir string, opts ...ConnectOption) (net.Conn, 
 	rd := bufio.NewReaderSize(nc, 1<<20)
 	line, err := rd.ReadBytes('\n')
 	if err != nil {
-		// The socket is up before the agent starts, so a host whose
-		// spawn failed closes it without a welcome.
-		if se := spawnFailure(dir); se != nil {
-			return fail(se)
-		}
-		return fail(fmt.Errorf("host welcome: %w", err))
+		return fail(readErr(fmt.Errorf("host welcome: %w", err)))
 	}
 	_ = nc.SetReadDeadline(time.Time{})
 	if err := json.Unmarshal(line, &w); err != nil {

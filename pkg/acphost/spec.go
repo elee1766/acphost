@@ -100,6 +100,15 @@ type Spec struct {
 	// agent (or bwrap), user first and mnt last. With pid the agent is a
 	// child of nsenter, since a pid join only applies to children.
 	Join map[string]string `json:"join,omitempty"`
+	// Listen, if set, is a host:port the host also listens on over TCP,
+	// next to acp.sock. The host must be explicit: bind every interface
+	// with 0.0.0.0:PORT or [::]:PORT. Port 0 picks a free port, which the
+	// host writes to ListenFile. Empty means no TCP listener.
+	Listen string `json:"listen,omitempty"`
+	// TLS, if set, makes the TCP listener require a client certificate
+	// (mutual TLS, TLS 1.3). Without it the listener is plaintext with no
+	// authentication, and the host logs a warning. Needs Listen.
+	TLS *ListenTLS `json:"tls,omitempty"`
 }
 
 // MethodName returns the extension method for prefix and a suffix such as

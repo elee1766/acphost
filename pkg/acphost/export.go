@@ -2,6 +2,7 @@ package acphost
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -32,6 +33,13 @@ type options struct {
 	statsEvery time.Duration      // MethodExportStats period; tests shorten it
 	killGrace  time.Duration      // SIGTERM to SIGKILL on stop; tests shorten it
 	started    func(agentPid int) // called once the agent runs; set by the detached host child
+	listening  func(ListenInfo)   // called once the TCP listener is up
+	logger     *slog.Logger       // nil logs text to stderr
+}
+
+// WithLogger sets the logger the host writes to. Nil means text on stderr.
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
 }
 
 // WithExporter sets the conversation export factory. Nil means no export.
