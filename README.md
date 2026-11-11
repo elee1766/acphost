@@ -955,5 +955,83 @@ go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...   # v2.15.0, config in .golangci.yml
 ```
 
-The sandbox integration tests skip unless `bwrap` is on PATH and user
-namespaces work. The pasta test also needs `pasta`, `nft` and `bash`.
+## Testing
+
+`go test ./...` passes on any Linux host: a test that needs a host
+binary or setting it cannot find skips and says what is missing
+(`go test -v` shows the message). The table lists what the pkg/acphost
+integration tests need. A test needing several rows skips on the first
+one missing.
+
+| Needs | Tests | Skip message without it |
+|---|---|---|
+| `bwrap` on PATH and working | `TestSandboxExitCode`, `TestSandboxMounts`, `TestSandboxReconnectStop`, `TestSandboxSpawnFailureMount`, `TestSandboxAgentExitNotSpawnFailure`, `TestSandboxPastaDeny`, `TestSandboxPastaDNS`, `TestUsernsOverlay`, `TestUsernsSandboxRootMode`, `TestMatrix*/pasta`, `TestMatrix*/cgroup+user+pasta` | `bwrap not on PATH`, `bwrap does not work here: ...` |
+| `pasta`, `nft` and `bash` on PATH, pasta working | `TestSandboxPastaDeny`, `TestSandboxPastaDNS`, `TestUsernsSandboxRootMode`, `TestMatrix*/pasta`, `TestMatrix*/cgroup+user+pasta` | `pasta not on PATH`, `nft not on PATH`, `bash not on PATH`, `pasta does not work here: ...` |
+| an IPv4 default route | `TestSandboxPastaDeny` | `no /proc/net/route`, `no IPv4 default route` |
+| `net.ipv4.ip_unprivileged_port_start=53` (or root) | `TestSandboxPastaDNS` | `cannot bind 127.0.0.77:53 (...)` |
+| `getent` on PATH | `TestSandboxPastaDNS` (last part, a real agent resolving) | `getent not on PATH` |
+| `newuidmap` and `newgidmap` on PATH, unprivileged user namespaces | `TestUserns*`, `TestJoinNetAndUser`, `TestJoinPid`, `TestIsolationTwoSubIDSessions`, `TestMatrix*/user`, `TestMatrix*/cgroup+user+pasta` | `newuidmap not on PATH`, `newgidmap not on PATH`, `user namespaces do not work here: ...` |
+| a subid block for the user in /etc/subuid and /etc/subgid (two for the e2e test), passing `PreflightIsolation` | `TestUsernsSandboxRootMode`, `TestIsolationTwoSubIDSessions` | `no subid block for uid N: ...`, `need two subid blocks for uid N: ...`, `preflight: ...` |
+| `nsenter` on PATH, `Pin` working | `TestJoinNetAndUser`, `TestJoinPid`, `TestCheckJoinRejects` | `nsenter not on PATH`, `pin: ...` |
+| a writable delegated cgroup with memory and pids in its `cgroup.subtree_control`, or `ACPHOST_TEST_CGROUP` | `TestCgroup*` (including `TestCgroupDetachedHost*`), `TestMatrix*/cgroup`, `TestMatrix*/cgroup+user+pasta` | `no writable delegated cgroup: ...`, `delegated cgroup lacks memory` (or `pids`), `.../cgroup.subtree_control lacks memory or pids`, `enable controllers: ...` |
+| write access to the delegated cgroup's ancestors (moving the test process) | `TestCgroupSetupDelegation` | `cannot move into ...: ...` |
+| a systemd user manager, the test running in its cgroup tree, `systemd-run` and `systemctl` on PATH | `TestSystemd*` (`TestSystemdUnitRestart` also needs the two binaries) | `no systemd manager: ...`, `not in a user manager's cgroup tree: ...`, `no systemd-run: ...`, `no systemctl: ...` |
+| not running as root | `TestCheckJoinRejects/own_user_ns`, `TestPreflightMissing` (one case) | `root`, `root can write a read-only dir` |
+
+`TestMatrix*` runs each test in four flavours (subtests `cgroup`, `user`,
+`pasta`, `cgroup+user+pasta`). Each flavour skips on its own needs.
+`TestMatrixHostHelper` always skips (`helper for TestMatrixPdeathsig`):
+it is the host process that `TestMatrixPdeathsig` starts. Outside
+pkg/acphost, `TestOverlayBwrap` (pkg/sandbox) needs bwrap with overlay
+support, `TestE2ERunSandbox` (cmd/acphost) needs bwrap, and pkg/proc's
+`TestCgroup*` and `TestStartCtxDeadlineKillsCgroup` need a delegated
+cgroup with pids.
+
+`ACPHOST_TEST_CGROUP=<dir>` names an empty cgroup the tests may use as
+parent, with memory and pids enabled in its `cgroup.subtree_control`. A
+cgroup that holds processes cannot enable controllers for its children,
+so a delegated cgroup the test process sits in often lacks them.
+
+The full set, as CI runs it (`.github/workflows/ci.yml`, job `go`) on
+Ubuntu, as a user with sudo:
+
+```sh
+sudo apt-get install -y bubblewrap passt nftables uidmap
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+sudo sysctl -w net.ipv4.ip_unprivileged_port_start=53
+sudo usermod --add-subuids 200000-265535 --add-subgids 200000-265535 "$USER"
+# Ubuntu's bwrap-userns-restrict AppArmor profile blocks the in-sandbox id switch.
+sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+
+go test -race -run 'TestSandbox|TestUserns' ./...
+
+# Cgroup tests: an empty cgroup with memory and pids, the shell in a leaf below it.
+P=/sys/fs/cgroup/acphost-test
+sudo mkdir -p $P/test
+echo '+memory +pids' | sudo tee /sys/fs/cgroup/cgroup.subtree_control $P/cgroup.subtree_control
+sudo chown -R "$(id -u):$(id -g)" $P
+echo $$ | sudo tee $P/test/cgroup.procs
+ACPHOST_TEST_CGROUP=$P go test -race -run 'TestCgroup|TestMatrix|TestNoFields' ./...
+
+# systemd tests: run inside the user manager's tree.
+systemd-run --user --scope go test -race -run TestSystemd ./...
+
+go test -race ./...
+```
+
+The minimal-PATH run (CI job `minimal-path`, #291) checks the other end:
+with newuidmap, newgidmap, bwrap, pasta and nsenter missing, every test
+passes or skips. Locally:
+
+```sh
+d=$(mktemp -d)
+ln -s "$(go env GOROOT)/bin/go" "$d/go"
+for c in sh cat echo env grep head id readlink sed seq setsid sleep touch tr true; do
+  ln -s "$(command -v $c)" "$d/$c"
+done
+GOCACHE=$(go env GOCACHE) GOMODCACHE=$(go env GOMODCACHE) CGO_ENABLED=0 PATH=$d go test ./...
+```
+
+`CGO_ENABLED=0` because cgo needs gcc on PATH, which also rules out
+`-race` here. Unix socket paths are limited to 107 bytes, so a long
+`TMPDIR` fails socket tests: use `TMPDIR=/tmp` if it does.
