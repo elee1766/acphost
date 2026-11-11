@@ -33,6 +33,13 @@ subid blocks so `TestIsolationTwoSubIDSessions` runs there instead of
 skipping. The job never had `continue-on-error` (#291 was green), so
 there is nothing to remove.
 
+The minimal PATH dirs moved from `$RUNNER_TEMP` to `/tmp/minpath` and
+`/tmp/minpath-userns` (mode 755). The first CI run of this PR failed
+`TestIsolationTwoSubIDSessions` with `mkdir: Permission denied`: its
+agents run as a subordinate uid, which cannot traverse the runner's
+home to follow the symlinks. The README's local recipe chmods its
+mktemp dir to 755 for the same reason.
+
 Fixed tests, as failed before on the minimal PATH plus newuidmap and
 newgidmap: `TestUsernsFileOwnerAndExit/sandbox`,
 `TestUsernsReconnect/sandbox`, `TestIsolationTwoSubIDSessions`.

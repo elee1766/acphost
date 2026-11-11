@@ -141,14 +141,16 @@ jobs:
           grep -q "^$USER:" /etc/subgid || sudo usermod --add-subgids 200000-265535 "$USER"
       - name: minimal PATH
         run: |
-          d=$RUNNER_TEMP/minpath
-          mkdir -p "$d"
+          # Under /tmp, mode 755: the subid tests' agents run as a
+          # subordinate uid that cannot traverse $RUNNER_TEMP (#292).
+          d=/tmp/minpath
+          mkdir -p -m 755 "$d"
           ln -s "$(go env GOROOT)/bin/go" "$d/go"
           for c in sh cat echo env grep head id ls mkdir readlink rm sed seq setsid sleep touch tr true; do
             ln -s "$(command -v "$c")" "$d/$c"
           done
           echo "MINPATH=$d" >> "$GITHUB_ENV"
-          u=$RUNNER_TEMP/minpath-userns
+          u=/tmp/minpath-userns
           cp -a "$d" "$u"
           ln -s "$(command -v newuidmap)" "$u/newuidmap"
           ln -s "$(command -v newgidmap)" "$u/newgidmap"

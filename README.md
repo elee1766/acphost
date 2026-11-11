@@ -1024,7 +1024,7 @@ with newuidmap, newgidmap, bwrap, pasta and nsenter missing, every test
 passes or skips. Locally:
 
 ```sh
-d=$(mktemp -d)
+d=$(mktemp -d) && chmod 755 "$d"   # subid agents must reach it
 ln -s "$(go env GOROOT)/bin/go" "$d/go"
 for c in sh cat echo env grep head id ls mkdir readlink rm sed seq setsid sleep touch tr true; do
   ln -s "$(command -v $c)" "$d/$c"
