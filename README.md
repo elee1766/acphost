@@ -573,7 +573,8 @@ host run by `Main` directly also writes them. `Alive(dir)` is
 ## CLI
 
 `acphost` runs a command or a host by hand, to debug isolation without
-jobshop:
+jobshop, and keeps agent sessions to prompt from a shell (see
+"Sessions" below):
 
 ```sh
 acphost run  -c sandbox.yaml [--dir DIR] -- CMD ARGS...
@@ -622,6 +623,40 @@ cgroup: {parent: /sys/fs/cgroup/acphost, memory_max: 2G, pids_max: 512}
 ```
 
 More configs in `docs/notes/165-cli.md`.
+
+### Sessions
+
+The CLI can also keep a conversation with an ACP agent under a name and
+prompt it from a shell. The agent is the command after `--`:
+
+```sh
+acphost new -s work -c sandbox.yaml -- jcode acp
+acphost prompt -s work 'what does pkg/proc do?'
+acphost prompt -s work --no-wait 'run the tests'   # returns at once
+acphost attach -s work                             # show that turn
+acphost cancel -s work
+acphost ls
+acphost rm -s work
+
+acphost exec -c sandbox.yaml 'summarize README.md' -- jcode acp
+```
+
+- `new` starts a detached host for the agent and opens an ACP session.
+  `-s` defaults to `default`, and a name belongs to the working directory
+  it was created in. `--dir DIR` uses a session directory of your choice.
+- `prompt` sends one turn and shows it. The host exits after `--lease`
+  (8h) without a client; the next `prompt` starts it again and the agent
+  loads the conversation, or gets a summary of the journal if it cannot.
+- `exec` is one prompt in a temporary session.
+- `status`, `stop` and `wait` take `-s NAME` as well as `--dir`.
+- Permission requests: `--approve-reads` (default) allows read and search
+  tool calls, `--approve-all` and `--deny-all` do what they say.
+- `--format text|json|quiet` picks the rendered turn, raw journal frames
+  or the agent's text only.
+- Exit status: 0 for `end_turn`, 130 cancelled, 1 another stop reason or
+  an error, 125 the agent could not start, 2 a bad command line.
+
+See `docs/notes/290-cli-sessions.md`.
 
 ## TCP listener
 
