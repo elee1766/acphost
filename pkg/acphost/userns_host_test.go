@@ -38,15 +38,19 @@ func testUser() userns.User {
 	return userns.User{UID: 1000, GID: 1000, MapUID: os.Geteuid(), MapGID: os.Getegid()}
 }
 
-func usernsSpecs(t *testing.T, script string) map[string]func(dir string) Spec {
-	return map[string]func(string) Spec{
-		"direct": func(dir string) Spec {
+// usernsSpecs returns spec builders by name. Each takes the subtest's t:
+// needBwrap called with the parent's t from inside a subtest fails the
+// subtest ("subtest may have called FailNow on a parent test") instead
+// of skipping it.
+func usernsSpecs(script string) map[string]func(t *testing.T, dir string) Spec {
+	return map[string]func(*testing.T, string) Spec{
+		"direct": func(t *testing.T, dir string) Spec {
 			agent := filepath.Join(dir, "agent")
 			require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\n"+script), 0o755))
 			u := testUser()
 			return Spec{Protocol: Protocol, Session: "s1", Command: agent, Dir: dir, GCRootDir: dir, LeaseMS: 60_000, User: &u}
 		},
-		"sandbox": func(dir string) Spec {
+		"sandbox": func(t *testing.T, dir string) Spec {
 			bwrap := needBwrap(t)
 			s := sandboxSpec(t, bwrap, dir, script)
 			u := testUser()
@@ -58,10 +62,10 @@ func usernsSpecs(t *testing.T, script string) map[string]func(dir string) Spec {
 
 func TestUsernsFileOwnerAndExit(t *testing.T) {
 	needUserns(t)
-	for name, mk := range usernsSpecs(t, "id -u >\"$PWD/inside\"; touch \"$PWD/made\"; exit 3\n") {
+	for name, mk := range usernsSpecs("id -u >\"$PWD/inside\"; touch \"$PWD/made\"; exit 3\n") {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			s := mk(dir)
+			s := mk(t, dir)
 			require.NoError(t, CheckSpawn(s, false))
 			require.NoError(t, WriteSpec(dir, s))
 			require.NoError(t, Main(dir))
@@ -86,10 +90,10 @@ func TestUsernsFileOwnerAndExit(t *testing.T) {
 
 func TestUsernsReconnect(t *testing.T) {
 	needUserns(t)
-	for name, mk := range usernsSpecs(t, `echo '{"jsonrpc":"2.0","method":"session/update"}'`+"\nexec cat >/dev/null\n") {
+	for name, mk := range usernsSpecs(`echo '{"jsonrpc":"2.0","method":"session/update"}'` + "\nexec cat >/dev/null\n") {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			require.NoError(t, WriteSpec(dir, mk(dir)))
+			require.NoError(t, WriteSpec(dir, mk(t, dir)))
 			done := make(chan error, 1)
 			go func() { done <- Main(dir) }()
 			ctx := context.Background()
