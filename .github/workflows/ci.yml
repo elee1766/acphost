@@ -115,3 +115,49 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.15.0
+
+  # go test ./... must give the same verdict on a host without the
+  # isolation binaries (#281, #284): each test passes or skips. The
+  # binaries are installed as in the go job, then hidden: the tests run
+  # with PATH set to a dir of symlinks to only go, sh and the tools the
+  # test scripts call. CGO_ENABLED=0 since cgo and -race would need gcc
+  # and binutils on PATH; the go job covers -race.
+  minimal-path:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: isolation setup
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap passt nftables uidmap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: minimal PATH
+        run: |
+          d=$RUNNER_TEMP/minpath
+          mkdir -p "$d"
+          ln -s "$(go env GOROOT)/bin/go" "$d/go"
+          for c in sh cat echo env grep head id readlink sed seq setsid sleep touch tr true; do
+            ln -s "$(command -v "$c")" "$d/$c"
+          done
+          echo "MINPATH=$d" >> "$GITHUB_ENV"
+          echo "PATH used: $d"
+          ls -l "$d"
+          bad=0
+          for c in newuidmap newgidmap bwrap pasta nsenter; do
+            echo "$c on runner PATH: $(command -v "$c" || echo none)"
+            if p=$(PATH=$d; command -v "$c"); then
+              echo "$c found on minimal PATH: $p"; bad=1
+            else
+              echo "$c absent from minimal PATH"
+            fi
+          done
+          exit "$bad"
+      - name: tests
+        run: |
+          export GOCACHE=$(go env GOCACHE) GOMODCACHE=$(go env GOMODCACHE)
+          CGO_ENABLED=0 PATH=$MINPATH go test -json -count=1 ./... > test-minpath.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-minpath.json
+          exit "${rc:-0}"
