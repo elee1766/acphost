@@ -121,7 +121,9 @@ jobs:
   # binaries are installed as in the go job, then hidden: the tests run
   # with PATH set to a dir of symlinks to only go, sh and the tools the
   # test scripts call. CGO_ENABLED=0 since cgo and -race would need gcc
-  # and binutils on PATH; the go job covers -race.
+  # and binutils on PATH; the go job covers -race. A second run adds
+  # only newuidmap and newgidmap: a host with some isolation binaries
+  # reaches code that one with none skips early (#292).
   minimal-path:
     runs-on: ubuntu-26.04
     steps:
@@ -134,15 +136,25 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q bubblewrap passt nftables uidmap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # The newuidmap-only run reaches the subid tests (#292).
+          grep -q "^$USER:" /etc/subuid || sudo usermod --add-subuids 200000-265535 "$USER"
+          grep -q "^$USER:" /etc/subgid || sudo usermod --add-subgids 200000-265535 "$USER"
       - name: minimal PATH
         run: |
-          d=$RUNNER_TEMP/minpath
-          mkdir -p "$d"
+          # Under /tmp, mode 755: the subid tests' agents run as a
+          # subordinate uid that cannot traverse $RUNNER_TEMP (#292).
+          d=/tmp/minpath
+          mkdir -p -m 755 "$d"
           ln -s "$(go env GOROOT)/bin/go" "$d/go"
-          for c in sh cat echo env grep head id readlink sed seq setsid sleep touch tr true; do
+          for c in sh cat echo env grep head id ls mkdir readlink rm sed seq setsid sleep touch tr true; do
             ln -s "$(command -v "$c")" "$d/$c"
           done
           echo "MINPATH=$d" >> "$GITHUB_ENV"
+          u=/tmp/minpath-userns
+          cp -a "$d" "$u"
+          ln -s "$(command -v newuidmap)" "$u/newuidmap"
+          ln -s "$(command -v newgidmap)" "$u/newgidmap"
+          echo "MINPATH_USERNS=$u" >> "$GITHUB_ENV"
           echo "PATH used: $d"
           ls -l "$d"
           bad=0
@@ -160,4 +172,13 @@ jobs:
           export GOCACHE=$(go env GOCACHE) GOMODCACHE=$(go env GOMODCACHE)
           CGO_ENABLED=0 PATH=$MINPATH go test -json -count=1 ./... > test-minpath.json || rc=$?
           jq -j 'select(.Action == "output") | .Output' test-minpath.json
+          exit "${rc:-0}"
+      - name: tests with newuidmap only
+        if: success() || failure()
+        run: |
+          echo "PATH used: $MINPATH_USERNS"
+          ls -l "$MINPATH_USERNS"
+          export GOCACHE=$(go env GOCACHE) GOMODCACHE=$(go env GOMODCACHE)
+          CGO_ENABLED=0 PATH=$MINPATH_USERNS go test -json -count=1 ./... > test-minpath-userns.json || rc=$?
+          jq -j 'select(.Action == "output") | .Output' test-minpath-userns.json
           exit "${rc:-0}"
