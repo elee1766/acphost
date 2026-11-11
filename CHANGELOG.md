@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/gfx-labs/acphost/compare/v0.24.0...v0.24.1) (2026-11-11)
+
+
+### Documentation
+
+* add a README Testing section for host binary requirements ([#293](https://github.com/gfx-labs/acphost/issues/293)) ([#295](https://github.com/gfx-labs/acphost/issues/295)) ([d5ca89f](https://github.com/gfx-labs/acphost/commit/d5ca89f31a09d9a84395724763fc95533ccbcf10))
+
 ## [0.24.0](https://github.com/gfx-labs/acphost/compare/v0.23.0...v0.24.0) (2026-11-10)
 
 
