@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/gfx-labs/acphost/compare/v0.24.1...v0.25.0) (2026-11-12)
+
+
+### Features
+
+* **cli:** add agent sessions, parse with urfave/cli ([3dccb5b](https://github.com/gfx-labs/acphost/commit/3dccb5bf48a0565224d6767cf245d5ece55f24d7))
+
 ## [0.24.1](https://github.com/gfx-labs/acphost/compare/v0.24.0...v0.24.1) (2026-11-11)
 
 
