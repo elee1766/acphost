@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/gfx-labs/acphost/compare/v0.25.0...v0.25.1) (2026-11-12)
+
+
+### Documentation
+
+* **readme:** describe the library and the CLI, add a CLI quick start ([744701c](https://github.com/gfx-labs/acphost/commit/744701caa22d57c265af46a7f4fe8189e80dea75))
+
 ## [0.25.0](https://github.com/gfx-labs/acphost/compare/v0.24.1...v0.25.0) (2026-11-12)
 
 
