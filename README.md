@@ -5,12 +5,25 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/gfx-labs/acphost)](https://goreportcard.com/report/github.com/gfx-labs/acphost)
 [![Release](https://img.shields.io/github/v/release/gfx-labs/acphost?sort=semver)](https://github.com/gfx-labs/acphost/releases)
 
-acphost is a Go library for the [Agent Client Protocol
-(ACP)](https://agentclientprotocol.com). It runs a coding agent such as
-jcode (`jcode acp`), Claude Code (via `claude-code-acp`) or Gemini CLI
-(`gemini --experimental-acp`) in a detached host process, so the agent
+acphost runs a coding agent that speaks the [Agent Client Protocol
+(ACP)](https://agentclientprotocol.com), such as jcode (`jcode acp`),
+Claude Code (via `claude-code-acp`) or Gemini CLI
+(`gemini --experimental-acp`), in a detached host process, so the agent
 session survives client restarts: a client that reconnects replays what
-it missed from a journal.
+it missed from a journal. The agent can run under a sandbox, a user
+namespace and a cgroup.
+
+It comes in two parts:
+
+- **The library** (`pkg/...`): Go packages for a program that manages
+  agent sessions, such as a controller or a chat bridge. It writes a
+  spec, starts the host, connects to its socket and speaks ACP. See
+  [Library quick start](#library-quick-start).
+- **The CLI** (`cmd/acphost`): prompt an agent from a shell, the way
+  [acpx](https://github.com/openclaw/acpx) does, with the conversation
+  kept under a name across turns and host restarts. It also runs
+  single commands or hosts by hand to debug isolation. See
+  [CLI quick start](#cli-quick-start).
 
 One host process per session:
 
@@ -33,8 +46,16 @@ to run agent sessions that survive controller restarts.
 
 ## Install
 
+Library:
+
 ```sh
 go get github.com/gfx-labs/acphost
+```
+
+CLI:
+
+```sh
+go install github.com/gfx-labs/acphost/cmd/acphost@latest
 ```
 
 Packages are under `pkg/`:
@@ -48,8 +69,6 @@ Packages are under `pkg/`:
 | `pkg/userns` | user namespaces and subids: `User`, `AllocSubIDs` |
 | `pkg/acphosttest` | an in-process host for tests |
 | `cmd/acphost` | the `acphost` CLI |
-
-The CLI: `go install github.com/gfx-labs/acphost/cmd/acphost@latest`.
 
 ### Upgrading
 
@@ -70,7 +89,36 @@ with old and new code for each breaking change. In short:
 
 `Protocol` is 1 throughout. From v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
 
-## Quick start
+## CLI quick start
+
+A session is a conversation with one agent, kept under a name per
+working directory. The agent is the command after `--`.
+
+```sh
+$ acphost new -s work -- jcode acp
+/home/me/.local/state/acphost/sessions/fabdb5764858/work
+$ acphost prompt -s work 'Remember the word PELICAN. Reply only with OK.'
+=== turn 10:02:37: Remember the word PELICAN. Reply only with OK.
+OK
+=== turn end 10:02:40: end_turn
+$ acphost stop -s work            # the host exits
+$ acphost prompt -s work --format quiet 'Which word?'
+PELICAN                           # restarted, conversation loaded
+$ acphost ls
+$ acphost rm -s work
+```
+
+- `prompt` reads stdin when given no text or `-`. `--no-wait` returns
+  once the turn started, `attach` shows it later, `cancel` stops it.
+- `exec TEXT -- CMD` is one prompt in a temporary session.
+- `-c FILE` and `--ro`, `--rw`, `--network` put the agent under the
+  isolation described below.
+- `--format text|json|quiet`: rendered turn, journal frames, or the
+  agent's text only.
+
+All commands and flags: [CLI](#cli) and [Sessions](#sessions).
+
+## Library quick start
 
 This needs none of the isolation features described below. It starts a
 host, connects, and later reconnects asking for replay from a seq. The
