@@ -18,7 +18,6 @@ import (
 
 func TestMain(m *testing.M) {
 	acphost.MaybeChild()
-	maybeFakeAgent()
 	os.Exit(m.Run())
 }
 

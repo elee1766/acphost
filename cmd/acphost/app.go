@@ -13,12 +13,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// Lease defaults. A named session is only connected during a turn, so its
-// lease is the idle time between prompts, not a controller outage.
-const (
-	hostLease    = 30 * time.Minute
-	sessionLease = 8 * time.Hour
-)
+// hostLease is the default lease of host and start --host.
+const hostLease = 30 * time.Minute
 
 // app is one command line: the streams the commands use and what followed
 // the first "--".
@@ -77,7 +73,7 @@ func (a *app) exec(args []string) error {
 	return a.root.Run(context.Background(), append([]string{"acphost"}, args...))
 }
 
-// argv is the command of run, host, start and new: the arguments from the
+// argv is the command of run, host and start: the arguments from the
 // first one that is not a flag, as the flag package split them before.
 func (a *app) argv(cmd *cli.Command) []string {
 	pos := cmd.Args().Slice()
@@ -110,60 +106,20 @@ func newApp(stdin io.Reader, stdout, stderr io.Writer) *app {
 		},
 		{
 			Name: "status", Usage: "print running, exited or lost as JSON",
-			Flags: append(sessionFlags(), graceFlag(true)), Action: a.cmdDetached,
+			Flags: append(dirFlags(), graceFlag(true)), Action: a.cmdDetached,
 		},
 		{
 			Name: "stop", Usage: "stop a detached command or host and print its exit",
-			Flags: append(sessionFlags(), graceFlag(false)), Action: a.cmdDetached,
+			Flags: append(dirFlags(), graceFlag(false)), Action: a.cmdDetached,
 		},
 		{
 			Name: "wait", Usage: "wait for a detached command or host and exit with its status",
-			Flags: append(sessionFlags(), graceFlag(true)), Action: a.cmdDetached,
-		},
-		{
-			Name: "new", Usage: "create a session: start its host detached and open an ACP session with the agent",
-			ArgsUsage: "-- CMD ARGS...", Action: a.cmdNew, StopOnNthArg: new(1),
-			Flags: join(sessionFlags(), isolationFlags(), []cli.Flag{
-				&cli.DurationFlag{Name: "lease", Value: sessionLease, Usage: "the host exits after no client for this long; the next prompt restarts it"},
-			}),
-		},
-		{
-			Name: "prompt", Usage: "send a prompt to a session and show the turn",
-			ArgsUsage: "TEXT... (no TEXT, or -, reads stdin)", Action: a.cmdPrompt,
-			Flags: join(sessionFlags(), turnFlags(), isolationFlags(), []cli.Flag{
-				&cli.BoolFlag{Name: "no-wait", Usage: "return once the host has the prompt; attach shows the turn"},
-			}),
-		},
-		{
-			Name: "exec", Usage: "one prompt in a temporary session that is removed afterwards",
-			ArgsUsage: "TEXT... -- CMD ARGS... (no TEXT, or -, reads stdin)", Action: a.cmdExec,
-			Flags: join(turnFlags(), isolationFlags()),
-		},
-		{
-			Name: "attach", Usage: "show what a session did since this client last looked, and the running turn",
-			Flags: join(sessionFlags(), turnFlags()), Action: a.cmdAttach,
-		},
-		{
-			Name: "cancel", Usage: "cancel a session's running turn",
-			Flags: sessionFlags(), Action: a.cmdCancel,
-		},
-		{
-			Name: "ls", Usage: "list the sessions of the working directory",
-			Action: a.cmdLs,
-			Flags: []cli.Flag{
-				&cli.BoolFlag{Name: "all", Usage: "sessions of every working directory"},
-				&cli.StringFlag{Name: "format", Value: formatText, Usage: "text or json"},
-			},
-		},
-		{
-			Name: "rm", Usage: "stop a named session and delete its directory",
-			Flags:  []cli.Flag{&cli.StringFlag{Name: "session", Aliases: []string{"s"}, Usage: "session `NAME`"}},
-			Action: a.cmdRm,
+			Flags: append(dirFlags(), graceFlag(true)), Action: a.cmdDetached,
 		},
 	}
 	a.root = &cli.Command{
 		Name:    "acphost",
-		Usage:   "run a command or an ACP agent session under acphost's isolation",
+		Usage:   "run a command or an ACP host under acphost's isolation",
 		Version: version(),
 		Reader:  stdin, Writer: stdout, ErrWriter: stderr,
 		// Actions return their exit status as an error; run maps it.
@@ -230,28 +186,15 @@ func specFlags() []cli.Flag {
 	})
 }
 
-// sessionFlags name a session directory: by name, or directly.
-func sessionFlags() []cli.Flag {
-	return []cli.Flag{
-		&cli.StringFlag{Name: "session", Aliases: []string{"s"}, Usage: "session `NAME`, scoped to the working directory"},
-		&cli.StringFlag{Name: "dir", Usage: "session or state `DIR`, instead of a name"},
-	}
+// dirFlags name the state or session dir of a detached command or host.
+func dirFlags() []cli.Flag {
+	return []cli.Flag{&cli.StringFlag{Name: "dir", Usage: "state or session `DIR`"}}
 }
 
 // graceFlag is stop's --grace. status and wait took it too before the
 // commands had their own flag sets, so they still accept it, hidden.
 func graceFlag(hidden bool) cli.Flag {
 	return &cli.DurationFlag{Name: "grace", Hidden: hidden, Usage: "SIGKILL the supervisor if it still runs after this long (0 waits)"}
-}
-
-// turnFlags are how a turn is shown and how permission requests are answered.
-func turnFlags() []cli.Flag {
-	return []cli.Flag{
-		&cli.StringFlag{Name: "format", Value: formatText, Usage: "text, json (journal frames, one per line) or quiet (agent text only)"},
-		&cli.BoolFlag{Name: "approve-all", Usage: "allow every permission request"},
-		&cli.BoolFlag{Name: "approve-reads", Usage: "allow read and search requests, refuse the rest (default)"},
-		&cli.BoolFlag{Name: "deny-all", Usage: "refuse every permission request"},
-	}
 }
 
 // version is the module version the binary was built from, or dev.

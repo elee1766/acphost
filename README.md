@@ -19,11 +19,14 @@ It comes in two parts:
   agent sessions, such as a controller or a chat bridge. It writes a
   spec, starts the host, connects to its socket and speaks ACP. See
   [Library quick start](#library-quick-start).
-- **The CLI** (`cmd/acphost`): prompt an agent from a shell, the way
-  [acpx](https://github.com/openclaw/acpx) does, with the conversation
-  kept under a name across turns and host restarts. It also runs
-  single commands or hosts by hand to debug isolation. See
-  [CLI quick start](#cli-quick-start).
+- **The CLI** (`cmd/acphost`): runs a single command or a host by hand
+  under the same isolation, to debug a sandbox config without a
+  controller. See [CLI](#cli).
+
+To prompt an agent from a shell, the way
+[acpx](https://github.com/openclaw/acpx) does, with the conversation kept
+under a name across turns and host restarts, use
+[acpc](https://github.com/gfx-labs/acpc). It is a client of this library.
 
 One host process per session:
 
@@ -88,37 +91,6 @@ with old and new code for each breaking change. In short:
    started by a build before v0.17 before deploying (v0.20).
 
 `Protocol` is 1 throughout. From v0.3: `docs/notes/68-upgrade-v0.3-v0.6.md`.
-
-## CLI quick start
-
-A session is a conversation with one agent, kept under a name per
-working directory. The agent is the command after `--`.
-
-```sh
-$ acphost new -s work -- jcode acp
-/home/me/.local/state/acphost/sessions/fabdb5764858/work
-$ acphost prompt -s work 'Remember the word PELICAN. Reply only with OK.'
-=== turn 10:02:37: Remember the word PELICAN. Reply only with OK.
-OK
-=== turn end 10:02:40: end_turn
-$ acphost stop -s work            # the host exits
-$ acphost prompt -s work --format quiet 'Which word?'
-PELICAN                           # restarted, conversation loaded
-$ acphost ls
-$ acphost rm -s work
-```
-
-- `prompt` reads stdin when given no text or `-`. `--no-wait` returns
-  once the turn started, `attach` shows it later, `cancel` stops it.
-- `exec TEXT -- CMD` is one prompt in a temporary session. Like acpx,
-  it shows the spawn, `initialize` and `session/new` steps as they
-  happen, then the turn as the agent streams it.
-- `-c FILE` and `--ro`, `--rw`, `--network` put the agent under the
-  isolation described below.
-- `--format text|json|quiet`: rendered turn, journal frames, or the
-  agent's text only.
-
-All commands and flags: [CLI](#cli) and [Sessions](#sessions).
 
 ## Library quick start
 
@@ -623,8 +595,7 @@ host run by `Main` directly also writes them. `Alive(dir)` is
 ## CLI
 
 `acphost` runs a command or a host by hand, to debug isolation without
-jobshop, and keeps agent sessions to prompt from a shell (see
-"Sessions" below):
+jobshop:
 
 ```sh
 acphost run  -c sandbox.yaml [--dir DIR] -- CMD ARGS...
@@ -676,39 +647,11 @@ More configs in `docs/notes/165-cli.md`.
 
 ### Sessions
 
-The CLI can also keep a conversation with an ACP agent under a name and
-prompt it from a shell. The agent is the command after `--`:
-
-```sh
-acphost new -s work -c sandbox.yaml -- jcode acp
-acphost prompt -s work 'what does pkg/proc do?'
-acphost prompt -s work --no-wait 'run the tests'   # returns at once
-acphost attach -s work                             # show that turn
-acphost cancel -s work
-acphost ls
-acphost rm -s work
-
-acphost exec -c sandbox.yaml 'summarize README.md' -- jcode acp
-```
-
-- `new` starts a detached host for the agent and opens an ACP session.
-  `-s` defaults to `default`, and a name belongs to the working directory
-  it was created in. `--dir DIR` uses a session directory of your choice.
-- `prompt` sends one turn and shows it. The host exits after `--lease`
-  (8h) without a client; the next `prompt` starts it again and the agent
-  loads the conversation, or gets a summary of the journal if it cannot.
-- `exec` is one prompt in a temporary session. With `--format text` it
-  also shows the handshake (`[acphost] spawning agent`, `[client]
-  initialize`, `[client] session/new`) as it happens.
-- `status`, `stop` and `wait` take `-s NAME` as well as `--dir`.
-- Permission requests: `--approve-reads` (default) allows read and search
-  tool calls, `--approve-all` and `--deny-all` do what they say.
-- `--format text|json|quiet` picks the rendered turn, raw journal frames
-  or the agent's text only.
-- Exit status: 0 for `end_turn`, 130 cancelled, 1 another stop reason or
-  an error, 125 the agent could not start, 2 a bad command line.
-
-See `docs/notes/290-cli-sessions.md`.
+Named agent sessions (`new`, `prompt`, `exec`, `attach`, `cancel`, `ls`,
+`rm`) moved to [acpc](https://github.com/gfx-labs/acpc). Use
+`acpc` with the same flags. Its sessions live under
+`$XDG_STATE_HOME/acpc/sessions`. See
+`docs/notes/2026-11-13-session-cli-to-acpc.md`.
 
 ## TCP listener
 

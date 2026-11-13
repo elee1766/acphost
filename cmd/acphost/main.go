@@ -1,24 +1,18 @@
 // Command acphost runs acphost by hand: one command or an ACP host under
-// its isolation (#165), and named agent sessions to prompt from a shell.
+// its isolation (#165), to debug isolation without a controller.
 //
 //	acphost run  -c sandbox.yaml [flags] -- CMD ARGS...
 //	acphost host -c sandbox.yaml --dir SESSIONDIR [--lease 30m] -- CMD ARGS...
 //	acphost start [--host] -c sandbox.yaml --dir DIR -- CMD ARGS...
-//	acphost status|stop|wait --dir DIR | -s NAME
-//
-//	acphost new    -s NAME [-c sandbox.yaml] -- CMD ARGS...
-//	acphost prompt -s NAME TEXT...
-//	acphost exec   [-c sandbox.yaml] TEXT -- CMD ARGS...
-//	acphost attach|cancel|rm -s NAME
-//	acphost ls
+//	acphost status|stop|wait --dir DIR
 //
 // run executes one command attached to the terminal and exits with its
 // status. host writes spec.json into SESSIONDIR and runs the ACP host
 // (acphost.Main) in the foreground. start runs a command, or with --host
-// an ACP host, detached; status, stop and wait use its dir. new starts a
-// detached host for an ACP agent and keeps it under a name; prompt sends
-// it a turn. See docs/notes/165-cli.md, 200-cli-detached.md,
-// 211-cli-host-detached.md and 290-cli-sessions.md.
+// an ACP host, detached; status, stop and wait use its dir. See
+// docs/notes/165-cli.md, 200-cli-detached.md and 211-cli-host-detached.md.
+// Named agent sessions to prompt from a shell are in
+// github.com/gfx-labs/acpc.
 package main
 
 import (
@@ -54,10 +48,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 type isolation struct {
 	config, network string
 	ro, rw, join    []string
-}
-
-func (i isolation) set() bool {
-	return i.config != "" || i.network != "" || len(i.ro) > 0 || len(i.rw) > 0 || len(i.join) > 0
 }
 
 func isolationFrom(cmd *cli.Command) isolation {
