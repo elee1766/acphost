@@ -19,17 +19,16 @@ import (
 // acphost.StartDetached, with its state in --dir. See
 // docs/notes/200-cli-detached.md and docs/notes/211-cli-host-detached.md.
 
-// cmdDetached is status, stop and wait. The dir is --dir, or a named
-// session's (-s), whose host keeps the same files.
+// cmdDetached is status, stop and wait on --dir.
 func (a *app) cmdDetached(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() > 0 || a.dashed {
 		return fmt.Errorf("%s takes no arguments", cmd.Name)
 	}
-	ref, err := sessionRef(cmd)
-	if err != nil {
-		return err
+	dir := cmd.String("dir")
+	if dir == "" {
+		return fmt.Errorf("%s needs --dir", cmd.Name)
 	}
-	d, err := proc.Open(ref.dir)
+	d, err := proc.Open(dir)
 	if err != nil {
 		return a.fail(1, err)
 	}
