@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/gfx-labs/acphost/compare/v0.25.1...v0.26.0) (2026-11-13)
+
+
+### Features
+
+* **cli:** exec shows the ACP handshake as it happens, as acpx does ([8da1b15](https://github.com/gfx-labs/acphost/commit/8da1b15440970c67254520c6515cc35faed2e87b))
+
 ## [0.25.1](https://github.com/gfx-labs/acphost/compare/v0.25.0...v0.25.1) (2026-11-12)
 
 
