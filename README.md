@@ -110,7 +110,9 @@ $ acphost rm -s work
 
 - `prompt` reads stdin when given no text or `-`. `--no-wait` returns
   once the turn started, `attach` shows it later, `cancel` stops it.
-- `exec TEXT -- CMD` is one prompt in a temporary session.
+- `exec TEXT -- CMD` is one prompt in a temporary session. Like acpx,
+  it shows the spawn, `initialize` and `session/new` steps as they
+  happen, then the turn as the agent streams it.
 - `-c FILE` and `--ro`, `--rw`, `--network` put the agent under the
   isolation described below.
 - `--format text|json|quiet`: rendered turn, journal frames, or the
@@ -695,7 +697,9 @@ acphost exec -c sandbox.yaml 'summarize README.md' -- jcode acp
 - `prompt` sends one turn and shows it. The host exits after `--lease`
   (8h) without a client; the next `prompt` starts it again and the agent
   loads the conversation, or gets a summary of the journal if it cannot.
-- `exec` is one prompt in a temporary session.
+- `exec` is one prompt in a temporary session. With `--format text` it
+  also shows the handshake (`[acphost] spawning agent`, `[client]
+  initialize`, `[client] session/new`) as it happens.
 - `status`, `stop` and `wait` take `-s NAME` as well as `--dir`.
 - Permission requests: `--approve-reads` (default) allows read and search
   tool calls, `--approve-all` and `--deny-all` do what they say.
