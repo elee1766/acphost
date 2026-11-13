@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.27.0](https://github.com/gfx-labs/acphost/compare/v0.26.0...v0.27.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** move named agent sessions to gfx-labs/acpc ([#303](https://github.com/gfx-labs/acphost/issues/303))
+
+### Features
+
+* **cli:** move named agent sessions to gfx-labs/acpc ([#303](https://github.com/gfx-labs/acphost/issues/303)) ([ed0c702](https://github.com/gfx-labs/acphost/commit/ed0c702c2baa51c2b9c3ab2051e515f73bde293f))
+
 ## [0.26.0](https://github.com/gfx-labs/acphost/compare/v0.25.1...v0.26.0) (2026-11-13)
 
 
